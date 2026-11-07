@@ -1466,6 +1466,10 @@ pub fn layout_at<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size:
     let unit = if s.world_space { 0.1 } else { 1.0 };
     let parsed = parse(text, s, fonts, size);
     let mut sh = shape(&parsed, s, fonts, size);
+    // Characters before firstVisibleCharacter take no part in layout: TMP lays
+    // out the rest from the top and reports these as empty elements.
+    let skipped = (s.first_visible_character.max(0) as usize).min(sh.len());
+    let skipped_elems: Vec<Shaped> = sh.drain(..skipped).collect();
     let [rx, ry, rw, rh] = s.rect;
     let (ml, mt, mr, mb) = (s.margin[0], s.margin[1], s.margin[2], s.margin[3]);
     let avail_w = (rw - ml - mr).max(0.0);
@@ -1776,7 +1780,9 @@ pub fn layout_at<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size:
     let block_lines: Vec<usize> = if s.overflow == Overflow::Page {
         (0..n).filter(|&i| page_of_line[i] == page_display.min(last_page)).collect()
     } else {
-        (0..n).collect()
+        // With maxVisibleLines the block ends at the descender TMP records at
+        // the first hidden line.
+        (0..n.min(s.max_visible_lines.max(0) as usize + 1)).collect()
     };
     let (blk_top, blk_bot) = if block_lines.is_empty() {
         (top, top)
@@ -1829,7 +1835,10 @@ pub fn layout_at<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size:
 
     // Build character infos.
     let mut out = Layout { font_size: size, first_overflow_character_index: first_overflow, is_text_overflowing: is_overflowing, overflow_mode_page: s.overflow == Overflow::Page, ..Default::default() };
-    let mut chars: Vec<CharInfo> = Vec::with_capacity(sh.len());
+    let mut chars: Vec<CharInfo> = Vec::with_capacity(sh.len() + skipped);
+    for e in &skipped_elems {
+        chars.push(CharInfo { character: e.info.character, index: e.info.index, string_length: e.info.string_length, ..Default::default() });
+    }
     let mut rendered_min = V2::new(f32::INFINITY, f32::INFINITY);
     let mut rendered_max = V2::new(f32::NEG_INFINITY, f32::NEG_INFINITY);
     let pad = s.padding * if s.extra_padding { 1.5 } else { 1.0 };
@@ -1900,10 +1909,8 @@ pub fn layout_at<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size:
                 if a.is_finite() { (line_w - (b - a)) * 0.5 - a } else { 0.0 }
             }
         };
-        if s.right_to_left {
-            dx = line_w - used - dx;
-        }
         let _ = content_start;
+        let rtl = s.right_to_left;
         let line_left = left + ml_;
         let mut info = LineInfo {
             first_character_index: chars.len() as i32,
@@ -1943,12 +1950,18 @@ pub fn layout_at<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size:
                 }
             }
             let pen = line_left + dx + xs[i] + jx;
-            let origin = pen + e.origin_offset;
+            // Right-to-left: the line runs leftwards from its right end; each
+            // origin is the glyph's left edge and xAdvance equals the origin.
+            // The pre-alignment layout starts at the right edge of the line.
+            let rtl_origin = line_left + dx + used - xs[i] - e.advance;
+            let rtl_shift = dx + used - line_w + ml_;
+            let origin = if rtl { rtl_origin } else { pen + e.origin_offset };
+            let shift = if rtl { rtl_shift } else { ml_ + dx + jx };
             if i == ln.start {
-                shift_first[li] = ml_ + dx + jx;
+                shift_first[li] = shift;
             }
             if i + 1 == ln.end {
-                shift_last[li] = ml_ + dx + jx;
+                shift_last[li] = shift;
             }
             if !c.is_space && !c.is_newline {
                 vis_seen += 1;
@@ -1960,7 +1973,13 @@ pub fn layout_at<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size:
             if Some(i) == last_vis_idx && wrapped_line {
                 adv -= e.char_spacing + wrap_style_spacing;
             }
-            let x_adv = if c.xadv_from_line_left { pen + adv - line_left } else { pen + adv };
+            let x_adv = if rtl {
+                origin
+            } else if c.xadv_from_line_left {
+                pen + adv - line_left
+            } else {
+                pen + adv
+            };
             c.origin = origin;
             c.x_advance = x_adv;
             c.base_line = v.baseline + c.voffset;
@@ -2014,9 +2033,7 @@ pub fn layout_at<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size:
             c.bottom_right = V2::new(x1 + sb, y0);
             c.aspect_ratio = if gh > 0.0 { (gw + 2.0 * p) / (gh + 2.0 * p) } else { 0.0 };
             if !c.is_newline && (c.is_visible || c.is_space) {
-                if c.is_visible {
-                    rendered_min.x = rendered_min.x.min(origin);
-                }
+                rendered_min.x = rendered_min.x.min(origin);
                 rendered_max.x = rendered_max.x.max(x_adv);
             }
             if i == ln.start && !c.is_visible && !c.is_newline {
@@ -2035,10 +2052,14 @@ pub fn layout_at<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size:
                     ext_min.x = qx0;
                 }
                 ext_max.x = qx1;
-                ext_pre_max = qx1 - dx - jx;
+                ext_pre_max = if rtl { qx1 - dx - used } else { qx1 - dx - jx };
                 ext_pre_pad = p * sc;
                 ext_pre_shy = c.character == 0xAD;
-                max_adv_pre = left + xs[i] + e.advance - e.char_spacing - if wrapped_line { wrap_style_spacing } else { e.style_spacing };
+                max_adv_pre = if rtl {
+                    left + line_w - xs[i] - e.advance
+                } else {
+                    left + xs[i] + e.advance - e.char_spacing - if wrapped_line { wrap_style_spacing } else { e.style_spacing }
+                };
                 if info.first_visible_character_index < 0 {
                     info.first_visible_character_index = chars.len() as i32;
                 }
@@ -2201,18 +2222,14 @@ pub fn layout_at<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size:
     }
     // Visibility limits.
     let first_vis = s.first_visible_character.max(0);
-    let mut vis_chars = 0i32;
-    let max_words = s.max_visible_words.max(0);
-    let word_of: Vec<i32> = {
-        let mut v = vec![-1i32; chars.len()];
-        for (wi, w) in out.words.iter().enumerate() {
-            for k in w.first_character_index..=w.last_character_index {
-                if (k as usize) < v.len() {
-                    v[k as usize] = wi as i32;
-                }
-            }
-        }
-        v
+    // maxVisibleWords hides everything after the last allowed word's end.
+    let max_words = s.max_visible_words.max(0) as usize;
+    let word_limit: i32 = if max_words >= out.words.len() {
+        i32::MAX
+    } else if max_words == 0 {
+        -1
+    } else {
+        out.words[max_words - 1].last_character_index
     };
     for (i, c) in chars.iter_mut().enumerate() {
         if !c.is_visible {
@@ -2220,17 +2237,14 @@ pub fn layout_at<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size:
         }
         let visible_by_count = (i as i32) >= first_vis && (i as i32) < s.max_visible_characters;
         let visible_by_line = (c.line_number as usize) < max_vis_lines;
-        let visible_by_word = word_of[i] < 0 || word_of[i] < max_words;
+        let visible_by_word = (i as i32) <= word_limit;
         let visible_by_page = s.overflow != Overflow::Page || c.page_number == page_display;
-        if (i as i32) >= first_vis {
-            vis_chars += 1;
-        }
         if !(visible_by_count && visible_by_line && visible_by_word && visible_by_page) {
             c.is_visible = false;
         }
     }
     // Space count and decorations.
-    out.space_count = chars.iter().filter(|c| is_whitespace(c.character)).count() as i32;
+    out.space_count = chars.iter().skip(skipped).filter(|c| is_whitespace(c.character)).count() as i32;
     if ellipsis_vertical {
         // A vertical-overflow ellipsis also counts its zero-width tail as a space.
         out.space_count += 1;
@@ -2258,6 +2272,29 @@ pub fn layout_at<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size:
     for l in out.links.iter_mut() {
         let max_len = chars.len() as i32 - l.link_text_first_character_index;
         l.link_text_length = l.link_text_length.min(max_len);
+    }
+    if skipped > 0 {
+        // The skipped elements' values: zeros with the first line's offsets
+        // added twice (as TMP reports them).
+        let (lx, by) = match (out.lines.first(), chars.get(skipped)) {
+            (Some(l), Some(_)) => (left + l.margin_left, l.baseline),
+            _ => (left, top),
+        };
+        for c in chars.iter_mut().take(skipped) {
+            let (x, y) = (2.0 * lx, 2.0 * by);
+            c.origin = x;
+            c.x_advance = x;
+            c.base_line = y;
+            c.ascender = y;
+            c.descender = y;
+            c.bottom_left = V2::new(x, y);
+            c.top_left = V2::new(x, y);
+            c.top_right = V2::new(x, y);
+            c.bottom_right = V2::new(x, y);
+            c.color = [0.0; 4];
+        }
+        rendered_min.x = rendered_min.x.min(2.0 * lx);
+        rendered_max.y = rendered_max.y.max(2.0 * by);
     }
     // Rendered bounds.
     if rendered_min.x.is_finite() {
