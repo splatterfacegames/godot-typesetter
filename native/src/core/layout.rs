@@ -616,7 +616,10 @@ impl<'a> ParseState<'a> {
                     self.st.style = (self.st.style & !style::STRIKETHROUGH) | (self.base.style & style::STRIKETHROUGH);
                     restore!("s", strike_color)
                 }
-                "color" => restore!("color", color),
+                "color" => {
+                    restore!("color", color);
+                    self.st.alpha = None;
+                }
                 "size" => restore!("size", size),
                 "font" => {
                     if let Some(prev) = self.pop("font") {
@@ -665,6 +668,12 @@ impl<'a> ParseState<'a> {
                 "gradient" => self.st.gradient = None,
                 "font-weight" => restore!("font-weight", weight),
                 "link" | "a" => {
+                    if name == "a" {
+                        if let Some(prev) = self.pop("a") {
+                            self.st.color = prev.color;
+                            self.st.style = (self.st.style & !style::UNDERLINE) | (prev.style & style::UNDERLINE);
+                        }
+                    }
                     if let Some(li) = self.open_link.take() {
                         let first = self.links[li].link_text_first_character_index as usize;
                         self.links[li].link_text_length = (self.elems.len() - first) as i32;
@@ -704,6 +713,7 @@ impl<'a> ParseState<'a> {
                 let Some(c) = richtext::parse_color(&v) else { return false };
                 self.save("color");
                 self.st.color = c;
+                self.st.alpha = None;
             }
             "alpha" => {
                 let Some(a) = richtext::parse_alpha(&v) else { return false };
@@ -714,9 +724,10 @@ impl<'a> ParseState<'a> {
                     return false;
                 }
                 let cur = self.st.size;
-                let new = if let Some(rest) = v.strip_prefix('+') {
+                let relative = matches!(richtext::parse_length(&v), Some(Length::Pixels(_)));
+                let new = if let (Some(rest), true) = (v.strip_prefix('+'), relative) {
                     resolve_len(rest, cur, cur, 1.0).map(|d| cur + d)
-                } else if v.starts_with('-') && !v.ends_with('%') {
+                } else if v.starts_with('-') && relative {
                     resolve_len(&v[1..], cur, cur, 1.0).map(|d| cur - d)
                 } else {
                     match richtext::parse_length(&v) {
@@ -776,9 +787,19 @@ impl<'a> ParseState<'a> {
                     "cspace" => self.st.cspace = self.len(&v, self.st.size).unwrap_or(0.0),
                     "mspace" => self.st.mspace = self.len(&v, self.st.size),
                     "voffset" => self.st.voffset = self.len(&v, self.st.size).unwrap_or(0.0),
-                    "indent" => self.st.indent = self.len(&v, pct_w).unwrap_or(0.0),
+                    "indent" => {
+                        // Also moves the pen to the indent at once (even backwards).
+                        let x = self.len(&v, pct_w).unwrap_or(0.0);
+                        self.st.indent = x;
+                        self.pending.push(Cmd::Pos(x));
+                    }
                     "line-indent" => self.st.line_indent = self.len(&v, pct_w).unwrap_or(0.0),
-                    "line-height" => self.st.line_height = self.len(&v, self.st.size),
+                    "line-height" => {
+                        // % is relative to the font's line height at the current size.
+                        let f = fonts.face(self.st.font);
+                        let natural = f.line_height * self.st.size / f.point_size.max(1.0) * self.unit;
+                        self.st.line_height = self.len(&v, natural);
+                    }
                     "margin-left" => self.st.margin_left = self.len(&v, pct_w).unwrap_or(0.0),
                     "margin-right" => self.st.margin_right = self.len(&v, pct_w).unwrap_or(0.0),
                     "rotate" => self.st.rotate = richtext::parse_length(&v).map(|l| match l {
@@ -843,9 +864,16 @@ impl<'a> ParseState<'a> {
             "shy" => self.push_char(0xAD, ti, tl),
             "zwj" => self.push_char(0x200D, ti, tl),
             "link" | "a" => {
-                let id = if name == "a" { t.attrs.iter().find(|(k, _)| k == "href").map(|x| x.1.clone()).unwrap_or(v.clone()) } else { v.clone() };
+                // `<a href="…">` takes its link id from the attribute name.
+                let id = if name == "a" && t.value.is_none() { t.attrs.first().map(|x| x.0.clone()).unwrap_or_default() } else { v.clone() };
                 let hash = tag_hash(&id);
                 self.links.push(LinkInfo { link_id: id, link_text_first_character_index: self.elems.len() as i32, link_text_length: 0, hash_code: hash });
+                if name == "a" && t.attrs.iter().any(|(k, _)| k == "href") {
+                    // <a href> also styles its text as a link: underlined, #40A0FF.
+                    self.save("a");
+                    self.st.style |= style::UNDERLINE;
+                    self.st.color = [64.0 / 255.0, 160.0 / 255.0, 1.0, 1.0];
+                }
                 self.open_link = Some(self.links.len() - 1);
                 self.st.link = (self.links.len() - 1) as i32;
             }
@@ -1011,9 +1039,11 @@ struct Shaped {
     char_spacing: f32,
     /// Bold spacing included in `advance` (excluded from maxAdvance).
     style_spacing: f32,
+    /// Glyph origin offset from the pen position (monospace centring).
+    origin_offset: f32,
 }
 
-fn shape<F: FontProvider>(p: &Parsed, s: &Settings, fonts: &mut F) -> Vec<Shaped> {
+fn shape<F: FontProvider>(p: &Parsed, s: &Settings, fonts: &mut F, text_size: f32) -> Vec<Shaped> {
     let unit = if s.world_space { 0.1 } else { 1.0 };
     let mut out: Vec<Shaped> = Vec::with_capacity(p.elems.len());
     let mut prev: Option<(u32, u32)> = None; // (font, glyph)
@@ -1057,6 +1087,7 @@ fn shape<F: FontProvider>(p: &Parsed, s: &Settings, fonts: &mut F) -> Vec<Shaped
         let mut advance;
         let mut extent_right = 0.0;
         let mut style_spacing = 0.0;
+        let mut origin_offset = 0.0;
         let mut scale;
         let mut face = face0;
         // Glyph lookup (with the provider's fallback chain). A character found
@@ -1115,8 +1146,10 @@ fn shape<F: FontProvider>(p: &Parsed, s: &Settings, fonts: &mut F) -> Vec<Shaped
             info.elem_descender = face.descent * metric_scale;
             let mut adv = g.advance;
             if st.style & style::BOLD != 0 {
-                adv += face.bold_spacing * face.point_size / 100.0;
-                style_spacing = face.bold_spacing * face.point_size / 100.0 * scale;
+                // Bold spacing scales with the text's size, not the tag's.
+                let base_scale = text_size / face.point_size.max(1.0) * unit;
+                style_spacing = face.bold_spacing * face.point_size / 100.0 * base_scale;
+                adv += style_spacing / scale.max(1e-6);
             } else {
                 adv += face.normal_spacing_offset * face.point_size / 100.0;
             }
@@ -1128,6 +1161,9 @@ fn shape<F: FontProvider>(p: &Parsed, s: &Settings, fonts: &mut F) -> Vec<Shaped
             }
             advance = adv * scale;
             if let Some(m) = st.mspace {
+                // Monospace: the pen moves by the cell width and the glyph is
+                // centred in its cell.
+                origin_offset = m * 0.5 - (g.bearing_x + g.width * 0.5) * scale;
                 advance = m;
             }
             extent_right = (g.bearing_x + g.width) * scale;
@@ -1186,6 +1222,7 @@ fn shape<F: FontProvider>(p: &Parsed, s: &Settings, fonts: &mut F) -> Vec<Shaped
             word_spacing_extra: word_extra,
             char_spacing,
             style_spacing,
+            origin_offset,
         });
         let _ = &mut scale;
     }
@@ -1380,7 +1417,7 @@ fn overflows_height(s: &Settings) -> bool {
 pub fn layout_at<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size: f32) -> Layout {
     let unit = if s.world_space { 0.1 } else { 1.0 };
     let parsed = parse(text, s, fonts, size);
-    let mut sh = shape(&parsed, s, fonts);
+    let mut sh = shape(&parsed, s, fonts, size);
     let [rx, ry, rw, rh] = s.rect;
     let (ml, mt, mr, mb) = (s.margin[0], s.margin[1], s.margin[2], s.margin[3]);
     let avail_w = (rw - ml - mr).max(0.0);
@@ -1435,6 +1472,8 @@ pub fn layout_at<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size:
         } else {
             let p = &vl[i - 1];
             let prev_ln = &lines[i - 1];
+            // <line-height> in effect at the end of the previous line sets the pitch.
+            let lh = if prev_ln.end > prev_ln.start { sh[prev_ln.end - 1].line_height } else { lh };
             let mut pitch = match lh {
                 Some(h) => h,
                 None => -p.desc + asc + gap.max(p.gap),
@@ -1453,23 +1492,31 @@ pub fn layout_at<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size:
         (Some(f), Some(l)) => (f.baseline + f.asc) - (l.baseline + l.desc) + mt + mb,
         _ => 0.0,
     };
+    // Preferred width: the widest line when only line feeds break lines
+    // (indents, <pos>, <space>, tabs and tag margins included).
     let pref_w_full = {
+        let mut ush = sh.clone();
+        let nowrap = Settings { wrap: Wrap::NoWrap, ..s.clone() };
+        let (ul, uxs) = break_lines(&mut ush, &nowrap, f32::INFINITY);
         let mut best = 0.0f32;
-        let mut x = 0.0f32;
-        let mut last_vis_end = 0.0f32;
-        for e in sh.iter() {
-            if e.info.is_newline {
-                best = best.max(last_vis_end);
-                x = 0.0;
-                last_vis_end = 0.0;
-                continue;
+        for ln in &ul {
+            let mut end = 0.0f32;
+            for i in (ln.start..ln.end).rev() {
+                let e = &ush[i];
+                if !(e.info.is_space || e.info.is_newline) {
+                    end = if e.origin_offset != 0.0 {
+                        // Monospaced: the glyph's own advance from its centred origin.
+                        uxs[i] + e.origin_offset + e.info.glyph_metrics[4] * e.scale
+                    } else {
+                        uxs[i] + e.advance - e.char_spacing - e.style_spacing
+                    };
+                    break;
+                }
             }
-            x += e.advance;
-            if !e.info.is_space {
-                last_vis_end = x - e.char_spacing - e.style_spacing;
-            }
+            let (lm, rm) = ush.get(ln.start).map(|e| (e.margin_l, e.margin_r)).unwrap_or((0.0, 0.0));
+            best = best.max(end + lm + rm);
         }
-        best.max(last_vis_end) + ml + mr
+        best + ml + mr
     };
 
     // Pages and vertical overflow.
@@ -1774,6 +1821,8 @@ pub fn layout_at<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size:
         let mut jx = 0.0f32;
         let mut vis_seen = 0;
         let mut max_adv_pre = f32::NEG_INFINITY;
+        let wrapped_line = !ln.ends_paragraph && li + 1 < lines.len();
+        let wrap_style_spacing = sh.get(ln.end).map(|e| e.style_spacing).unwrap_or(0.0);
         let mut run_asc = f32::NEG_INFINITY;
         let mut run_desc = f32::INFINITY;
         let mut ext_pre_max = f32::NEG_INFINITY;
@@ -1789,22 +1838,25 @@ pub fn layout_at<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size:
                     jx += justify_extra_char;
                 }
             }
-            let origin = line_left + dx + xs[i] + jx;
+            let pen = line_left + dx + xs[i] + jx;
+            let origin = pen + e.origin_offset;
             if i == ln.start {
-                shift_first[li] = dx + jx;
+                shift_first[li] = ml_ + dx + jx;
             }
             if i + 1 == ln.end {
-                shift_last[li] = dx + jx;
+                shift_last[li] = ml_ + dx + jx;
             }
             if !c.is_space && !c.is_newline {
                 vis_seen += 1;
             }
             let mut adv = e.advance;
-            // A line ended by wrapping reports its last character without spacing.
-            if Some(i) == last_vis_idx && !ln.ends_paragraph && li + 1 < lines.len() {
-                adv -= e.char_spacing;
+            // A line ended by wrapping reports its last character without its
+            // character spacing and without the bold spacing of the style in
+            // effect where the line broke (the next line's first character).
+            if Some(i) == last_vis_idx && wrapped_line {
+                adv -= e.char_spacing + wrap_style_spacing;
             }
-            let x_adv = origin + adv;
+            let x_adv = pen + adv;
             c.origin = origin;
             c.x_advance = x_adv;
             c.base_line = v.baseline + c.voffset;
@@ -1864,21 +1916,23 @@ pub fn layout_at<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size:
             }
             if i == ln.start && !c.is_visible && !c.is_newline {
                 // A line that opens with white space starts its extents there.
-                ext_min.x = ext_min.x.min(c.bottom_left.x);
+                ext_min.x = c.bottom_left.x;
                 rendered_min.x = rendered_min.x.min(origin);
             }
             if c.is_visible {
-                // Extents use the (possibly sheared) quad corners.
+                // Extents run from the first visible character's quad to the
+                // last one's (possibly sheared) corners — not the extremes, so
+                // <pos> moving back left shortens them; maxAdvance and length
+                // likewise follow the last visible character.
                 let qx0 = c.bottom_left.x.min(c.top_left.x);
                 let qx1 = c.top_right.x.max(c.bottom_right.x);
-                ext_min.x = ext_min.x.min(qx0);
-                ext_max.x = ext_max.x.max(qx1);
-                let pre = qx1 - dx - jx;
-                if pre >= ext_pre_max {
-                    ext_pre_max = pre;
-                    ext_pre_pad = p * sc;
+                if !ext_min.x.is_finite() {
+                    ext_min.x = qx0;
                 }
-                max_adv_pre = max_adv_pre.max(line_left + xs[i] + e.advance - e.char_spacing - e.style_spacing);
+                ext_max.x = qx1;
+                ext_pre_max = qx1 - dx - jx;
+                ext_pre_pad = p * sc;
+                max_adv_pre = left + xs[i] + e.advance - e.char_spacing - if wrapped_line { wrap_style_spacing } else { e.style_spacing };
                 if info.first_visible_character_index < 0 {
                     info.first_visible_character_index = chars.len() as i32;
                 }
@@ -1906,7 +1960,7 @@ pub fn layout_at<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size:
         info.character_count = info.last_character_index - info.first_character_index + 1;
         // Pre-alignment advance end; the alignment shift is added after all
         // lines are known (TMP adds the next line's first-character shift).
-        info.max_advance = if max_adv_pre.is_finite() { max_adv_pre } else { line_left };
+        info.max_advance = if max_adv_pre.is_finite() { max_adv_pre } else { left };
         // Length: right edge of the furthest glyph quad from the line's left
         // edge; lines closed by a line feed or the end of the text measure the
         // glyph without its quad padding.
