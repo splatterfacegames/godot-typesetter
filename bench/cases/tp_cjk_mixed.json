@@ -1,0 +1,14 @@
+{
+ "font": "NotoSansJP-Subset.ttf",
+ "component": "ugui",
+ "rect": [
+  300,
+  400
+ ],
+ "text": "Typesetter は TextMesh Pro と同じ結果を出すべきです。English words mixed with 日本語の文章、and more text.",
+ "props": {
+  "fontSize": 24,
+  "alignment": "TopLeft",
+  "textWrappingMode": "Normal"
+ }
+}

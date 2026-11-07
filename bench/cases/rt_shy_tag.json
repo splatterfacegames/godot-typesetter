@@ -1,0 +1,14 @@
+{
+ "font": "Inter-Regular.ttf",
+ "component": "ugui",
+ "rect": [
+  220,
+  300
+ ],
+ "text": "Extra<shy>ordi<shy>nary hyphen<shy>ation in<shy>side<shy>words",
+ "props": {
+  "fontSize": 30,
+  "alignment": "TopLeft",
+  "textWrappingMode": "Normal"
+ }
+}

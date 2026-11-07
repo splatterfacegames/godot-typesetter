@@ -1,0 +1,15 @@
+{
+ "font": "Inter-Regular.ttf",
+ "component": "ugui",
+ "rect": [
+  320,
+  200
+ ],
+ "text": "The quick brown fox jumps over the lazy dog. Pack my box with five dozen liquor ",
+ "props": {
+  "fontSize": 24,
+  "alignment": "TopLeft",
+  "textWrappingMode": "Normal",
+  "firstVisibleCharacter": 10
+ }
+}

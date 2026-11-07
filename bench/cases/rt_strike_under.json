@@ -1,0 +1,14 @@
+{
+ "font": "Inter-Regular.ttf",
+ "component": "ugui",
+ "rect": [
+  600,
+  300
+ ],
+ "text": "<s>strike</s> <strikethrough>also</strikethrough> <u>under line</u> <underline>also</underline> <u><s>both</s></u> <u color=#FF0000>red u</u> <s color=#00FF00>green s</s> <size=50><u>big</u></size>",
+ "props": {
+  "fontSize": 30,
+  "alignment": "TopLeft",
+  "textWrappingMode": "Normal"
+ }
+}

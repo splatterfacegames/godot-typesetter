@@ -1,0 +1,14 @@
+{
+ "font": "Inter-Regular.ttf",
+ "component": "ugui",
+ "rect": [
+  500,
+  500
+ ],
+ "text": "<style=H1>Heading</style> <style=\"Quote\">quoted text that may wrap</style> <style=Link>link</style> <style=C1>c1</style> <style=H2>h2</style> <style=C3>c3</style> <style=Title>Title</style> <style=Unknown>unk</style> end",
+ "props": {
+  "fontSize": 30,
+  "alignment": "TopLeft",
+  "textWrappingMode": "Normal"
+ }
+}

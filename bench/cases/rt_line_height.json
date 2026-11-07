@@ -1,0 +1,14 @@
+{
+ "font": "Inter-Regular.ttf",
+ "component": "ugui",
+ "rect": [
+  400,
+  500
+ ],
+ "text": "Line one<line-height=50%>\nLine two\nLine three</line-height>\nLine four<line-height=80>\nfive<line-height=2em>\nsix</line-height>\nseven",
+ "props": {
+  "fontSize": 30,
+  "alignment": "TopLeft",
+  "textWrappingMode": "Normal"
+ }
+}

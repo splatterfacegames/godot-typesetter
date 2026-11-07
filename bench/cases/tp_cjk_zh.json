@@ -1,0 +1,14 @@
+{
+ "font": "NotoSansJP-Subset.ttf",
+ "component": "ugui",
+ "rect": [
+  260,
+  300
+ ],
+ "text": "我能吞下玻璃而不伤身体。这是一个测试，包括标点符号：逗号、句号。",
+ "props": {
+  "fontSize": 24,
+  "alignment": "TopLeft",
+  "textWrappingMode": "Normal"
+ }
+}
