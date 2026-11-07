@@ -1,0 +1,14 @@
+{
+ "font": "Inter-Regular.ttf",
+ "component": "ugui",
+ "rect": [
+  700,
+  200
+ ],
+ "text": "<b >a</b > < b>c</ b> <size = 40>d</size> <color='red'>e</color> <size=\"40\">f</size> <color=#F00 >g</color>",
+ "props": {
+  "fontSize": 24,
+  "alignment": "TopLeft",
+  "textWrappingMode": "Normal"
+ }
+}

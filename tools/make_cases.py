@@ -206,6 +206,18 @@ tp("bold_pad5", "<b>Bold</b> x <b>W</b>", {"fontSize": 48, "textWrappingMode": "
    asset={"pointSize": 48, "padding": 5, "renderMode": "SDFAA", "atlas": [512, 512]})
 tp("italic_sizes", "<i>Ab<size=60>Cd</size><sup>e</sup><voffset=10>f</voffset></i>", {}, rect=(500, 200))
 
+CLOSE = ["pos", "space", "page", "br", "sprite", "zwsp", "nbsp", "shy", "width", "rotate", "gradient", "font-weight", "a", "mark",
+         "cspace", "mspace", "voffset", "indent", "line-height", "line-indent", "align", "allcaps", "uppercase", "lowercase",
+         "smallcaps", "nobr", "sup", "sub", "material", "link", "style", "font", "size", "color", "u", "s", "i", "b", "noparse",
+         "margin", "alpha", "action", "fade", "zwj", "underline", "strikethrough", "margin-left", "margin-right", "foo"]
+tp("close_tags", "x".join("</%s>" % t for t in CLOSE) + "x", {"fontSize": 16}, rect=(900, 400))
+OPEN_BAD = ["size=abc", "cspace=x", "pos=a", "voffset", "align=foo", "rotate=x", "font-weight=abc", "width", "indent", "mspace",
+            "line-height", "line-indent=q", "margin", "mark=zz", "alpha=#GG", "alpha=80", "sprite", "space", "link", "a", "font",
+            "style", "gradient", "u=1", "i=2", "page=3", "br=1", "nobr=no", "size=", "size=10px", "size=1.5em", "color=#1234567",
+            "color=#FFF5", "color=redd", "pos=10px", "cspace=2px", "B", "COLOR=red", "Size=40", "sup=1"]
+tp("open_bad_values", "|".join("<%s>" % t for t in OPEN_BAD) + "|end", {"fontSize": 16}, rect=(900, 400))
+tp("tags_spacing", "<b >a</b > < b>c</ b> <size = 40>d</size> <color='red'>e</color> <size=\"40\">f</size> <color=#F00 >g</color>", {"fontSize": 24}, rect=(700, 200))
+
 # --- atlas generation per render mode (ASCII, static set)
 for mode in ("SDF", "SDFAA", "SDFAA_HINTED", "SDF8", "SDF16", "SDF32", "SMOOTH", "SMOOTH_HINTED", "RASTER", "RASTER_HINTED"):
     case("atlas_" + mode.lower(), "AVg@", {"fontSize": 48, "textWrappingMode": "NoWrap"}, rect=(400, 100),

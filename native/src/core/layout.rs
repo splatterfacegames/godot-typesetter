@@ -9,7 +9,7 @@
 
 use std::collections::HashMap;
 
-use super::richtext::{self, Length, Token};
+use super::richtext::{self, Length, Tag, Token};
 
 // ------------------------------------------------------------------ inputs
 
@@ -29,12 +29,17 @@ pub struct FaceMetrics {
     pub underline_offset: f32,
     pub underline_thickness: f32,
     pub strikethrough_offset: f32,
+    pub strikethrough_thickness: f32,
     pub tab_width: f32,
     /// Style values (TMP font asset fields).
     pub bold_spacing: f32,
     pub normal_spacing_offset: f32,
     pub italic_style: f32,
     pub tab_size: f32,
+    /// Atlas padding in pixels at the sampling size (TMP `atlasPadding`).
+    pub atlas_padding: f32,
+    /// Material weight added for bold (TMP font asset `boldStyle`).
+    pub bold_style: f32,
 }
 
 /// A glyph in an atlas, metrics in pixels at the asset's sampling point size.
@@ -70,6 +75,16 @@ pub trait FontProvider {
     }
     /// Sprite lookup (`<sprite=N>` / `<sprite name="x">`): returns sprite id.
     fn sprite(&mut self, _asset: Option<&str>, _index: Option<i32>, _name: Option<&str>) -> Option<SpriteInfo> {
+        None
+    }
+    /// Sprite whose unicode matches `cp` (used for characters missing from
+    /// every font, like TMP's emoji / sprite-asset fallback).
+    fn sprite_by_unicode(&mut self, _cp: u32) -> Option<SpriteInfo> {
+        None
+    }
+    /// Line-breaking character sets for CJK text: (characters that may not end
+    /// a line, characters that may not start one). `None` uses the defaults.
+    fn line_breaking_rules(&mut self) -> Option<(String, String)> {
         None
     }
     /// Named style from the style sheet: (opening markup, closing markup).
@@ -300,6 +315,10 @@ pub struct CharInfo {
     pub break_after: bool,
     pub no_break: bool,
     pub voffset: f32,
+    /// Element is an overflow placeholder (ellipsis slot / cut point): never part of a word.
+    pub no_word: bool,
+    /// The zero-width element after an ellipsis.
+    pub ellipsis_tail: bool,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -390,6 +409,8 @@ pub struct Layout {
     pub sprite_count: i32,
     pub text_bounds_min: V2,
     pub text_bounds_max: V2,
+    /// Whether pages were laid out (overflow mode Page): `pages` is meaningful.
+    pub overflow_mode_page: bool,
 }
 
 impl Layout {
@@ -431,6 +452,7 @@ struct StyleState {
     line_height: Option<f32>,
     sup_sub_scale: f32,
     sup_sub_offset: f32,
+    weight: i32,
 }
 
 #[derive(Clone, Debug)]
@@ -444,6 +466,8 @@ enum Cmd {
 struct Elem {
     cp: u32,
     src: usize,
+    /// Source chars this element stands for (TMP stringLength).
+    len: usize,
     style: StyleState,
     cmd_before: Vec<Cmd>,
     sprite: Option<SpriteInfo>,
@@ -476,6 +500,7 @@ fn base_style(s: &Settings) -> StyleState {
         line_height: None,
         sup_sub_scale: 1.0,
         sup_sub_offset: 0.0,
+        weight: s.font_weight,
     }
 }
 
@@ -494,293 +519,418 @@ struct Parsed {
     links: Vec<LinkInfo>,
 }
 
-fn parse<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size: f32) -> Parsed {
-    // Expand <style> before tokenizing so the inserted markup is parsed too.
-    let mut expanded = String::new();
-    let mut style_stack: Vec<String> = Vec::new();
-    for tok in richtext::tokenize(text, s.rich_text) {
+/// Rich-text interpreter state: walks tokens, keeps the style stacks and
+/// produces elements. Tags whose value does not parse (or whose font / style /
+/// sprite / gradient cannot be found) are emitted as literal text.
+struct ParseState<'a> {
+    s: &'a Settings,
+    src: Vec<char>,
+    base: StyleState,
+    st: StyleState,
+    /// Font size the `%` / `em` units of `<size>` refer to (the text's size).
+    size: f32,
+    unit: f32,
+    stacks: HashMap<&'static str, Vec<StyleState>>,
+    elems: Vec<Elem>,
+    pending: Vec<Cmd>,
+    links: Vec<LinkInfo>,
+    open_link: Option<usize>,
+    style_stack: Vec<String>,
+}
+
+/// TMP's case-insensitive name hash (djb2 with xor over upper-cased chars).
+pub fn tag_hash(s: &str) -> i32 {
+    s.chars().fold(0i32, |h, c| (h.wrapping_shl(5).wrapping_add(h)) ^ (c.to_ascii_uppercase() as i32))
+}
+
+impl<'a> ParseState<'a> {
+    fn push_char(&mut self, cp: u32, index: usize, len: usize) {
+        self.elems.push(Elem { cp, src: index, len, style: self.st.clone(), cmd_before: std::mem::take(&mut self.pending), sprite: None });
+    }
+
+    /// Emits the source text of `span` as literal characters.
+    fn literal(&mut self, span: (usize, usize), ovr: Option<(usize, usize)>) {
+        for k in span.0..span.1.min(self.src.len()) {
+            let c = self.src[k] as u32;
+            match ovr {
+                Some((i, l)) => self.push_char(c, i, l),
+                None => self.push_char(c, k, 1),
+            }
+        }
+    }
+
+    fn save(&mut self, k: &'static str) {
+        self.stacks.entry(k).or_default().push(self.st.clone());
+    }
+
+    fn pop(&mut self, k: &'static str) -> Option<StyleState> {
+        self.stacks.get_mut(k).and_then(|x| x.pop())
+    }
+
+    fn len(&self, v: &str, pct_base: f32) -> Option<f32> {
+        resolve_len(v, self.st.size, pct_base, self.unit)
+    }
+
+    fn line_width(&self) -> f32 {
+        self.s.rect[2] - self.s.margin[0] - self.s.margin[2]
+    }
+
+    fn feed<F: FontProvider>(&mut self, tok: Token, ovr: Option<(usize, usize)>, fonts: &mut F, depth: usize) {
         match tok {
-            Token::Tag(t) if t.name == "style" => {
-                if t.closing {
-                    if let Some(name) = style_stack.pop() {
-                        if let Some((_, close)) = fonts.style(&name) {
-                            expanded.push_str(&close);
-                        }
-                    }
-                } else if let Some(v) = &t.value {
-                    if let Some((open, _)) = fonts.style(v) {
-                        expanded.push_str(&open);
-                        style_stack.push(v.clone());
-                    }
-                }
+            Token::Char(c, i, l) => {
+                let (i, l) = ovr.unwrap_or((i, l));
+                self.push_char(c as u32, i, l);
             }
             Token::Tag(t) => {
-                let chars: Vec<char> = text.chars().collect();
-                expanded.extend(&chars[t.span.0..t.span.1]);
-            }
-            Token::Char(c, _) => {
-                if s.rich_text && c == '<' {
-                    // keep literal '<' literal after re-tokenizing
-                    expanded.push('<');
-                } else {
-                    expanded.push(c);
+                if !self.tag(&t, ovr, fonts, depth) {
+                    self.literal(t.span, ovr);
                 }
             }
         }
     }
-    let text = if style_stack.is_empty() && !text.contains("<style") { text.to_string() } else { expanded };
-    let toks = richtext::tokenize(&text, s.rich_text);
-    let unit = if s.world_space { 0.1 } else { 1.0 };
-    let base = base_style(s);
-    let mut st = base.clone();
-    st.size = size;
-    let mut stacks: HashMap<&'static str, Vec<StyleState>> = HashMap::new();
-    let mut elems: Vec<Elem> = Vec::new();
-    let mut pending: Vec<Cmd> = Vec::new();
-    let mut links: Vec<LinkInfo> = Vec::new();
-    let mut open_link: Option<usize> = None;
-    let push = |stacks: &mut HashMap<&'static str, Vec<StyleState>>, k: &'static str, st: &StyleState| {
-        stacks.entry(k).or_default().push(st.clone());
-    };
-    for tok in toks {
-        match tok {
-            Token::Char(c, i) => {
-                let mut cp = c as u32;
-                if !s.parse_ctrl_characters && (c == '\n' || c == '\t') {
-                    // literal control chars are still characters
-                    cp = c as u32;
+
+    /// Applies a tag; returns false when TMP would show it as text.
+    fn tag<F: FontProvider>(&mut self, t: &Tag, ovr: Option<(usize, usize)>, fonts: &mut F, depth: usize) -> bool {
+        let name = t.name.as_str();
+        let v = t.value.clone().unwrap_or_default();
+        let has_v = t.value.as_deref().is_some_and(|x| !x.is_empty());
+        let (ti, tl) = ovr.unwrap_or((t.span.0, t.span.1 - t.span.0));
+        macro_rules! restore {
+            ($k:expr, $field:ident) => {{
+                if let Some(prev) = self.pop($k) {
+                    self.st.$field = prev.$field;
+                } else {
+                    self.st.$field = self.base.$field.clone();
                 }
-                elems.push(Elem { cp, src: i, style: st.clone(), cmd_before: std::mem::take(&mut pending), sprite: None });
-            }
-            Token::Tag(t) => {
-                let name = t.name.as_str();
-                let v = t.value.clone().unwrap_or_default();
-                macro_rules! restore {
-                    ($k:expr, $field:ident) => {{
-                        if let Some(prev) = stacks.get_mut($k).and_then(|x| x.pop()) {
-                            st.$field = prev.$field;
-                        } else {
-                            st.$field = base.$field.clone();
-                        }
-                    }};
+            }};
+        }
+        if t.closing {
+            match name {
+                "b" => self.st.style = (self.st.style & !style::BOLD) | (self.base.style & style::BOLD),
+                "i" => self.st.style = (self.st.style & !style::ITALIC) | (self.base.style & style::ITALIC),
+                "u" => {
+                    self.st.style = (self.st.style & !style::UNDERLINE) | (self.base.style & style::UNDERLINE);
+                    restore!("u", underline_color)
                 }
-                if t.closing {
-                    match name {
-                        "b" => st.style &= !style::BOLD,
-                        "i" => st.style &= !style::ITALIC,
-                        "u" | "underline" => {
-                            st.style &= !style::UNDERLINE;
-                            restore!("u", underline_color)
-                        }
-                        "s" | "strikethrough" => {
-                            st.style &= !style::STRIKETHROUGH;
-                            restore!("s", strike_color)
-                        }
-                        "color" => restore!("color", color),
-                        "alpha" => st.alpha = None,
-                        "size" => restore!("size", size),
-                        "font" => restore!("font", font),
-                        "material" => restore!("material", material),
-                        "mark" => {
-                            st.style &= !style::HIGHLIGHT;
-                            restore!("mark", mark)
-                        }
-                        "sup" | "sub" => {
-                            st.style &= !(style::SUPERSCRIPT | style::SUBSCRIPT);
-                            st.sup_sub_scale = 1.0;
-                            st.sup_sub_offset = 0.0;
-                        }
-                        "cspace" => st.cspace = 0.0,
-                        "mspace" => st.mspace = None,
-                        "voffset" => st.voffset = 0.0,
-                        "indent" => st.indent = 0.0,
-                        "line-height" => st.line_height = None,
-                        "line-indent" => st.line_indent = 0.0,
-                        "margin" => {
-                            st.margin_left = 0.0;
-                            st.margin_right = 0.0
-                        }
-                        "margin-left" => st.margin_left = 0.0,
-                        "margin-right" => st.margin_right = 0.0,
-                        "align" => st.halign = None,
-                        "allcaps" | "uppercase" => st.style &= !style::UPPERCASE,
-                        "lowercase" => st.style &= !style::LOWERCASE,
-                        "smallcaps" => st.style &= !style::SMALLCAPS,
-                        "nobr" => st.nobr = false,
-                        "rotate" => st.rotate = 0.0,
-                        "width" => st.width_scale = None,
-                        "gradient" => st.gradient = None,
-                        "link" | "a" => {
-                            if let Some(li) = open_link.take() {
-                                let first = links[li].link_text_first_character_index as usize;
-                                links[li].link_text_length = (elems.len() - first) as i32;
-                            }
-                            st.link = -1;
-                        }
-                        _ => {}
+                "s" => {
+                    self.st.style = (self.st.style & !style::STRIKETHROUGH) | (self.base.style & style::STRIKETHROUGH);
+                    restore!("s", strike_color)
+                }
+                "color" => restore!("color", color),
+                "size" => restore!("size", size),
+                "font" => {
+                    if let Some(prev) = self.pop("font") {
+                        self.st.font = prev.font;
+                        self.st.material = prev.material;
+                    } else {
+                        self.st.font = self.base.font;
+                        self.st.material = self.base.material;
                     }
-                    continue;
+                }
+                "material" => restore!("material", material),
+                "mark" => {
+                    self.st.style &= !style::HIGHLIGHT;
+                    restore!("mark", mark)
+                }
+                "sup" | "sub" => {
+                    // Nested <sup>/<sub> unwind one level at a time.
+                    if let Some(prev) = self.pop("supsub") {
+                        self.st.sup_sub_scale = prev.sup_sub_scale;
+                        self.st.sup_sub_offset = prev.sup_sub_offset;
+                        let keep = prev.style & (style::SUPERSCRIPT | style::SUBSCRIPT);
+                        self.st.style = (self.st.style & !(style::SUPERSCRIPT | style::SUBSCRIPT)) | keep;
+                    } else {
+                        self.st.style &= !(style::SUPERSCRIPT | style::SUBSCRIPT);
+                        self.st.sup_sub_scale = 1.0;
+                        self.st.sup_sub_offset = 0.0;
+                    }
+                }
+                "cspace" => self.st.cspace = 0.0,
+                "mspace" => self.st.mspace = None,
+                "voffset" => self.st.voffset = 0.0,
+                "indent" => self.st.indent = 0.0,
+                "line-height" => self.st.line_height = None,
+                "line-indent" => self.st.line_indent = 0.0,
+                "margin" => {
+                    self.st.margin_left = 0.0;
+                    self.st.margin_right = 0.0
+                }
+                "align" => self.st.halign = None,
+                "allcaps" | "uppercase" => self.st.style &= !style::UPPERCASE,
+                "lowercase" => self.st.style &= !style::LOWERCASE,
+                "smallcaps" => self.st.style &= !style::SMALLCAPS,
+                "nobr" => self.st.nobr = false,
+                "rotate" => self.st.rotate = 0.0,
+                "width" => self.st.width_scale = None,
+                "gradient" => self.st.gradient = None,
+                "font-weight" => restore!("font-weight", weight),
+                "link" | "a" => {
+                    if let Some(li) = self.open_link.take() {
+                        let first = self.links[li].link_text_first_character_index as usize;
+                        self.links[li].link_text_length = (self.elems.len() - first) as i32;
+                    }
+                    self.st.link = -1;
+                }
+                "style" => {
+                    if let Some(name) = self.style_stack.pop() {
+                        if let Some((_, close)) = fonts.style(&name) {
+                            self.expand(&close, (ti, tl), fonts, depth);
+                        }
+                    }
+                }
+                _ => {}
+            }
+            return true;
+        }
+        let pct_w = self.line_width();
+        match name {
+            "b" => self.st.style |= style::BOLD,
+            "i" => self.st.style |= style::ITALIC,
+            "u" => {
+                self.save("u");
+                self.st.style |= style::UNDERLINE;
+                if let Some(c) = t.attrs.iter().find(|(k, _)| k == "color").and_then(|(_, c)| richtext::parse_color(c)) {
+                    self.st.underline_color = Some(c);
+                }
+            }
+            "s" => {
+                self.save("s");
+                self.st.style |= style::STRIKETHROUGH;
+                if let Some(c) = t.attrs.iter().find(|(k, _)| k == "color").and_then(|(_, c)| richtext::parse_color(c)) {
+                    self.st.strike_color = Some(c);
+                }
+            }
+            "color" => {
+                let Some(c) = richtext::parse_color(&v) else { return false };
+                self.save("color");
+                self.st.color = c;
+            }
+            "alpha" => {
+                let Some(a) = richtext::parse_alpha(&v) else { return false };
+                self.st.alpha = Some(a);
+            }
+            "size" => {
+                if !has_v {
+                    return false;
+                }
+                let cur = self.st.size;
+                let new = if let Some(rest) = v.strip_prefix('+') {
+                    resolve_len(rest, cur, cur, 1.0).map(|d| cur + d)
+                } else if v.starts_with('-') && !v.ends_with('%') {
+                    resolve_len(&v[1..], cur, cur, 1.0).map(|d| cur - d)
+                } else {
+                    match richtext::parse_length(&v) {
+                        Some(Length::Percent(p)) => Some(self.size * p / 100.0),
+                        Some(Length::Em(e)) => Some(self.size * e),
+                        Some(Length::Pixels(p)) => Some(p),
+                        None => None,
+                    }
+                };
+                let Some(n) = new else { return false };
+                self.save("size");
+                self.st.size = n;
+            }
+            "font" => {
+                if !has_v {
+                    return false;
+                }
+                let Some(f) = fonts.font_by_name(&v) else { return false };
+                self.save("font");
+                self.st.font = f;
+                self.st.material = match t.attrs.iter().find(|(k, _)| k == "material") {
+                    Some((_, m)) => fonts.material_by_name(f, m).unwrap_or(0),
+                    None => 0,
+                };
+            }
+            "material" => {
+                let Some(m) = fonts.material_by_name(self.st.font, &v) else { return false };
+                self.save("material");
+                self.st.material = m;
+            }
+            "mark" => {
+                self.save("mark");
+                self.st.style |= style::HIGHLIGHT;
+                self.st.mark = Some(richtext::parse_color(&v).unwrap_or(DEFAULT_MARK));
+            }
+            "sup" | "sub" => {
+                self.save("supsub");
+                let f = fonts.face(self.st.font);
+                let sup = name == "sup";
+                self.st.style &= !(style::SUPERSCRIPT | style::SUBSCRIPT);
+                self.st.style |= if sup { style::SUPERSCRIPT } else { style::SUBSCRIPT };
+                let sz = if sup { f.superscript_size } else { f.subscript_size };
+                let sz = if sz > 0.0 { sz } else { 0.5 };
+                // The offset is the face's (scaled to the current, possibly
+                // already reduced, size) times the reduction.
+                let off = if sup { f.superscript_offset } else { f.subscript_offset };
+                let cur = self.st.size * self.st.sup_sub_scale / f.point_size.max(1.0) * self.unit;
+                self.st.sup_sub_offset += off * cur * sz;
+                self.st.sup_sub_scale *= sz;
+            }
+            "cspace" | "mspace" | "voffset" | "indent" | "line-height" | "line-indent" | "rotate" | "width" | "pos"
+            | "margin-left" | "margin-right" | "font-weight" | "space" => {
+                if !has_v || (name == "space" && v.trim_end().ends_with('%')) {
+                    return false;
                 }
                 match name {
-                    "b" => st.style |= style::BOLD,
-                    "i" => st.style |= style::ITALIC,
-                    "u" | "underline" => {
-                        push(&mut stacks, "u", &st);
-                        st.style |= style::UNDERLINE;
-                        if let Some(c) = richtext::parse_color(&v) {
-                            st.underline_color = Some(c);
-                        }
-                    }
-                    "s" | "strikethrough" => {
-                        push(&mut stacks, "s", &st);
-                        st.style |= style::STRIKETHROUGH;
-                        if let Some(c) = richtext::parse_color(&v) {
-                            st.strike_color = Some(c);
-                        }
-                    }
-                    "color" => {
-                        if let Some(c) = richtext::parse_color(&v) {
-                            push(&mut stacks, "color", &st);
-                            st.color = c;
-                        }
-                    }
-                    "alpha" => {
-                        let a = v.trim_start_matches('#');
-                        if let Ok(x) = u8::from_str_radix(a, 16) {
-                            st.alpha = Some(x as f32 / 255.0);
-                        }
-                    }
-                    "size" => {
-                        let cur = st.size;
-                        let new = if let Some(rest) = v.strip_prefix('+') {
-                            resolve_len(rest, cur, cur, 1.0).map(|d| cur + d)
-                        } else if v.starts_with('-') && !v.ends_with('%') {
-                            resolve_len(&v[1..], cur, cur, 1.0).map(|d| cur - d)
-                        } else {
-                            match richtext::parse_length(&v) {
-                                Some(Length::Percent(p)) => Some(size * p / 100.0),
-                                Some(Length::Em(e)) => Some(size * e),
-                                Some(Length::Pixels(p)) => Some(p),
-                                None => None,
-                            }
+                    "cspace" => self.st.cspace = self.len(&v, self.st.size).unwrap_or(0.0),
+                    "mspace" => self.st.mspace = self.len(&v, self.st.size),
+                    "voffset" => self.st.voffset = self.len(&v, self.st.size).unwrap_or(0.0),
+                    "indent" => self.st.indent = self.len(&v, pct_w).unwrap_or(0.0),
+                    "line-indent" => self.st.line_indent = self.len(&v, pct_w).unwrap_or(0.0),
+                    "line-height" => self.st.line_height = self.len(&v, self.st.size),
+                    "margin-left" => self.st.margin_left = self.len(&v, pct_w).unwrap_or(0.0),
+                    "margin-right" => self.st.margin_right = self.len(&v, pct_w).unwrap_or(0.0),
+                    "rotate" => self.st.rotate = richtext::parse_length(&v).map(|l| match l {
+                        Length::Pixels(x) | Length::Em(x) | Length::Percent(x) => x,
+                    }).unwrap_or(0.0),
+                    "width" => self.st.width_scale = self.len(&v, pct_w),
+                    "font-weight" => {
+                        self.save("font-weight");
+                        self.st.weight = match richtext::parse_length(&v) {
+                            Some(Length::Pixels(x)) => x as i32,
+                            _ => 0,
                         };
-                        if let Some(n) = new {
-                            push(&mut stacks, "size", &st);
-                            st.size = n;
-                        }
                     }
-                    "font" => {
-                        if let Some(f) = fonts.font_by_name(&v) {
-                            push(&mut stacks, "font", &st);
-                            st.font = f;
-                            if let Some((_, m)) = t.attrs.iter().find(|(k, _)| k == "material") {
-                                st.material = fonts.material_by_name(f, m).unwrap_or(0);
-                            } else {
-                                st.material = 0;
-                            }
-                        }
-                    }
-                    "material" => {
-                        if let Some(m) = fonts.material_by_name(st.font, &v) {
-                            push(&mut stacks, "material", &st);
-                            st.material = m;
-                        }
-                    }
-                    "mark" => {
-                        push(&mut stacks, "mark", &st);
-                        st.style |= style::HIGHLIGHT;
-                        st.mark = Some(richtext::parse_color(&v).unwrap_or([1.0, 1.0, 0.0, 0.5]));
-                    }
-                    "sup" | "sub" => {
-                        let f = fonts.face(st.font);
-                        let sup = name == "sup";
-                        st.style |= if sup { style::SUPERSCRIPT } else { style::SUBSCRIPT };
-                        let sz = if sup { f.superscript_size } else { f.subscript_size };
-                        st.sup_sub_scale = if sz > 0.0 { sz } else { 0.5 };
-                        let off = if sup { f.superscript_offset } else { f.subscript_offset };
-                        st.sup_sub_offset = off * (st.size / f.point_size.max(1.0)) * unit;
-                    }
-                    "cspace" => st.cspace = resolve_len(&v, st.size, st.size, unit).unwrap_or(0.0),
-                    "mspace" => st.mspace = resolve_len(&v, st.size, st.size, unit),
-                    "voffset" => st.voffset = resolve_len(&v, st.size, st.size, unit).unwrap_or(0.0),
-                    "indent" => st.indent = resolve_len(&v, st.size, s.rect[2] - s.margin[0] - s.margin[2], unit).unwrap_or(0.0),
-                    "line-indent" => st.line_indent = resolve_len(&v, st.size, s.rect[2] - s.margin[0] - s.margin[2], unit).unwrap_or(0.0),
-                    "line-height" => st.line_height = resolve_len(&v, st.size, st.size, unit),
-                    "margin" => {
-                        let m = resolve_len(&v, st.size, s.rect[2] - s.margin[0] - s.margin[2], unit).unwrap_or(0.0);
-                        st.margin_left = m;
-                        st.margin_right = m;
-                    }
-                    "margin-left" => st.margin_left = resolve_len(&v, st.size, s.rect[2], unit).unwrap_or(0.0),
-                    "margin-right" => st.margin_right = resolve_len(&v, st.size, s.rect[2], unit).unwrap_or(0.0),
-                    "align" => {
-                        st.halign = match v.to_ascii_lowercase().as_str() {
-                            "left" => Some(HAlign::Left),
-                            "center" => Some(HAlign::Center),
-                            "right" => Some(HAlign::Right),
-                            "justified" => Some(HAlign::Justified),
-                            "flush" => Some(HAlign::Flush),
-                            _ => None,
-                        }
-                    }
-                    "allcaps" | "uppercase" => st.style |= style::UPPERCASE,
-                    "lowercase" => st.style |= style::LOWERCASE,
-                    "smallcaps" => st.style |= style::SMALLCAPS,
-                    "nobr" => st.nobr = true,
-                    "page" => pending.push(Cmd::PageBreak),
                     "pos" => {
-                        if let Some(x) = resolve_len(&v, st.size, s.rect[2] - s.margin[0] - s.margin[2], unit) {
-                            pending.push(Cmd::Pos(x));
+                        if let Some(x) = self.len(&v, pct_w) {
+                            self.pending.push(Cmd::Pos(x));
                         }
                     }
                     "space" => {
-                        if let Some(x) = resolve_len(&v, st.size, st.size, unit) {
-                            pending.push(Cmd::Space(x));
-                        }
-                    }
-                    "rotate" => st.rotate = v.parse().unwrap_or(0.0),
-                    "width" => st.width_scale = resolve_len(&v, st.size, s.rect[2] - s.margin[0] - s.margin[2], unit),
-                    "gradient" => st.gradient = fonts.gradient(&v),
-                    "br" => elems.push(Elem { cp: '\n' as u32, src: t.span.0, style: st.clone(), cmd_before: std::mem::take(&mut pending), sprite: None }),
-                    "zwsp" => elems.push(Elem { cp: 0x200B, src: t.span.0, style: st.clone(), cmd_before: std::mem::take(&mut pending), sprite: None }),
-                    "nbsp" => elems.push(Elem { cp: 0xA0, src: t.span.0, style: st.clone(), cmd_before: std::mem::take(&mut pending), sprite: None }),
-                    "shy" => elems.push(Elem { cp: 0xAD, src: t.span.0, style: st.clone(), cmd_before: std::mem::take(&mut pending), sprite: None }),
-                    "link" | "a" => {
-                        let id = if name == "a" { t.attrs.iter().find(|(k, _)| k == "href").map(|x| x.1.clone()).unwrap_or(v.clone()) } else { v.clone() };
-                        let hash = id.bytes().fold(0i32, |h, b| h.wrapping_mul(31).wrapping_add(b as i32));
-                        links.push(LinkInfo { link_id: id, link_text_first_character_index: elems.len() as i32, link_text_length: 0, hash_code: hash });
-                        open_link = Some(links.len() - 1);
-                        st.link = (links.len() - 1) as i32;
-                    }
-                    "sprite" => {
-                        let asset = t.attrs.iter().find(|(k, _)| k == "asset" || k == "").map(|x| x.1.clone());
-                        let idx = t.attrs.iter().find(|(k, _)| k == "index").and_then(|x| x.1.parse().ok()).or_else(|| v.parse().ok());
-                        let nm = t.attrs.iter().find(|(k, _)| k == "name").map(|x| x.1.clone());
-                        let asset_name = if t.value.is_some() && idx.is_none() { Some(v.clone()) } else { asset };
-                        if let Some(mut sp) = fonts.sprite(asset_name.as_deref(), idx, nm.as_deref()) {
-                            if let Some((_, tv)) = t.attrs.iter().find(|(k, _)| k == "tint") {
-                                sp.tint = tv != "0";
-                            }
-                            let mut est = st.clone();
-                            if let Some((_, c)) = t.attrs.iter().find(|(k, _)| k == "color") {
-                                if let Some(c) = richtext::parse_color(c) {
-                                    est.color = c;
-                                    sp.tint = true;
-                                }
-                            }
-                            elems.push(Elem { cp: if sp.unicode != 0 { sp.unicode } else { 0xFFFE }, src: t.span.0, style: est, cmd_before: std::mem::take(&mut pending), sprite: Some(sp) });
+                        if let Some(x) = self.len(&v, self.st.size) {
+                            self.pending.push(Cmd::Space(x));
                         }
                     }
                     _ => {}
                 }
             }
+            "margin" => {
+                let m = if has_v { self.len(&v, pct_w).unwrap_or(0.0) } else { 0.0 };
+                self.st.margin_left = m;
+                self.st.margin_right = m;
+            }
+            "align" => {
+                self.st.halign = Some(match v.to_ascii_lowercase().as_str() {
+                    "left" => HAlign::Left,
+                    "center" => HAlign::Center,
+                    "right" => HAlign::Right,
+                    "justified" => HAlign::Justified,
+                    "flush" => HAlign::Flush,
+                    _ => return false,
+                })
+            }
+            "allcaps" | "uppercase" => self.st.style |= style::UPPERCASE,
+            "lowercase" => self.st.style |= style::LOWERCASE,
+            "smallcaps" => self.st.style |= style::SMALLCAPS,
+            "nobr" => self.st.nobr = true,
+            "page" => self.pending.push(Cmd::PageBreak),
+            "gradient" => {
+                let Some(g) = fonts.gradient(&v) else { return false };
+                self.st.gradient = Some(g);
+            }
+            "br" => {
+                if t.value.is_some() {
+                    // `<br=…>`: TMP takes "<br=" as the tag and leaves the rest as text.
+                    self.push_char('\n' as u32, ti, 4);
+                    self.literal((t.span.0 + 4, t.span.1), ovr);
+                } else {
+                    self.push_char('\n' as u32, ti, tl);
+                }
+            }
+            "zwsp" => self.push_char(0x200B, ti, tl),
+            "nbsp" => self.push_char(0xA0, ti, tl),
+            "shy" => self.push_char(0xAD, ti, tl),
+            "zwj" => self.push_char(0x200D, ti, tl),
+            "link" | "a" => {
+                let id = if name == "a" { t.attrs.iter().find(|(k, _)| k == "href").map(|x| x.1.clone()).unwrap_or(v.clone()) } else { v.clone() };
+                let hash = tag_hash(&id);
+                self.links.push(LinkInfo { link_id: id, link_text_first_character_index: self.elems.len() as i32, link_text_length: 0, hash_code: hash });
+                self.open_link = Some(self.links.len() - 1);
+                self.st.link = (self.links.len() - 1) as i32;
+            }
+            "style" => {
+                if !has_v || depth > 8 {
+                    return false;
+                }
+                let Some((open, _)) = fonts.style(&v) else { return false };
+                self.style_stack.push(v.clone());
+                self.expand(&open, (ti, tl), fonts, depth);
+            }
+            "sprite" => {
+                let asset = t.attrs.iter().find(|(k, _)| k == "asset").map(|x| x.1.clone());
+                let idx = t.attrs.iter().find(|(k, _)| k == "index").and_then(|x| x.1.parse().ok()).or_else(|| v.parse().ok());
+                let nm = t.attrs.iter().find(|(k, _)| k == "name").map(|x| x.1.clone());
+                let asset_name = if t.value.is_some() && v.parse::<i32>().is_err() { Some(v.clone()) } else { asset };
+                if idx.is_none() && nm.is_none() {
+                    return false;
+                }
+                let Some(mut sp) = fonts.sprite(asset_name.as_deref(), idx, nm.as_deref()) else { return false };
+                if let Some((_, tv)) = t.attrs.iter().find(|(k, _)| k == "tint") {
+                    sp.tint = tv != "0";
+                }
+                let mut est = self.st.clone();
+                if let Some((_, c)) = t.attrs.iter().find(|(k, _)| k == "color") {
+                    if let Some(c) = richtext::parse_color(c) {
+                        est.color = c;
+                        sp.tint = true;
+                    }
+                }
+                self.elems.push(Elem {
+                    cp: if sp.unicode != 0 { sp.unicode } else { 0xFFFE },
+                    src: ti,
+                    len: tl,
+                    style: est,
+                    cmd_before: std::mem::take(&mut self.pending),
+                    sprite: Some(sp),
+                });
+            }
+            "action" => {}
+            _ => return false,
         }
+        true
     }
-    if let Some(li) = open_link {
-        let first = links[li].link_text_first_character_index as usize;
-        links[li].link_text_length = (elems.len() - first) as i32;
+
+    /// Feeds a style definition's markup; its characters take the index and
+    /// length of the `<style>` tag that inserted them.
+    fn expand<F: FontProvider>(&mut self, markup: &str, at: (usize, usize), fonts: &mut F, depth: usize) {
+        let saved = std::mem::replace(&mut self.src, markup.chars().collect());
+        for tok in richtext::tokenize_with(markup, true, false) {
+            self.feed(tok, Some(at), fonts, depth + 1);
+        }
+        self.src = saved;
     }
-    Parsed { elems, links }
+}
+
+const DEFAULT_MARK: [f32; 4] = [1.0, 1.0, 0.0, 64.0 / 255.0];
+
+fn parse<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size: f32) -> Parsed {
+    let base = base_style(s);
+    let mut st = base.clone();
+    st.size = size;
+    let mut p = ParseState {
+        s,
+        src: text.chars().collect(),
+        base,
+        st,
+        size,
+        unit: if s.world_space { 0.1 } else { 1.0 },
+        stacks: HashMap::new(),
+        elems: Vec::new(),
+        pending: Vec::new(),
+        links: Vec::new(),
+        open_link: None,
+        style_stack: Vec::new(),
+    };
+    p.base.size = size;
+    for tok in richtext::tokenize_with(text, s.rich_text, s.parse_ctrl_characters) {
+        p.feed(tok, None, fonts, 0);
+    }
+    if let Some(li) = p.open_link {
+        let first = p.links[li].link_text_first_character_index as usize;
+        p.links[li].link_text_length = (p.elems.len() - first) as i32;
+    }
+    Parsed { elems: p.elems, links: p.links }
 }
 
 // ------------------------------------------------------------------ layout
@@ -791,6 +941,31 @@ fn is_space(cp: u32) -> bool {
 
 fn is_breaking_space(cp: u32) -> bool {
     matches!(cp, 0x20 | 0x09 | 0x2000..=0x2006 | 0x2008..=0x200B | 0x3000)
+}
+
+/// White space as TMP counts it (spaceCount): .NET `char.IsWhiteSpace`.
+fn is_whitespace(cp: u32) -> bool {
+    matches!(cp, 0x09..=0x0D | 0x20 | 0x85 | 0xA0 | 0x1680 | 0x2000..=0x200A | 0x2028 | 0x2029 | 0x202F | 0x205F | 0x3000)
+}
+
+/// Unicode punctuation (general category P*), as far as text layout needs it.
+fn is_punctuation(cp: u32) -> bool {
+    matches!(cp,
+        0x21..=0x23 | 0x25..=0x2A | 0x2C..=0x2F | 0x3A | 0x3B | 0x3F | 0x40 | 0x5B..=0x5D | 0x5F | 0x7B | 0x7D
+        | 0xA1 | 0xA7 | 0xAB | 0xB6 | 0xB7 | 0xBB | 0xBF
+        | 0x2010..=0x2027 | 0x2030..=0x2043 | 0x2045..=0x2051 | 0x2053..=0x205E
+        | 0x3001..=0x3003 | 0x3008..=0x3011 | 0x3014..=0x301F | 0x3030 | 0x303D | 0x30A0 | 0x30FB
+        | 0xFF01..=0xFF03 | 0xFF05..=0xFF0A | 0xFF0C..=0xFF0F | 0xFF1A | 0xFF1B | 0xFF1F | 0xFF20 | 0xFF3B..=0xFF3D
+        | 0xFF3F | 0xFF5B | 0xFF5D | 0xFF5F..=0xFF65)
+}
+
+/// Characters that belong to words (TMP wordInfo): letters, digits, hyphens
+/// and the soft hyphen; sprites count as word characters.
+fn is_word_char(c: &CharInfo) -> bool {
+    if c.element_type == ElementType::Sprite {
+        return true;
+    }
+    matches!(c.character, 0x2D | 0xAD | 0x2010) || char::from_u32(c.character).is_some_and(|ch| ch.is_alphanumeric())
 }
 
 fn is_cjk(cp: u32) -> bool {
@@ -834,6 +1009,8 @@ struct Shaped {
     /// Character spacing included in `advance` (character spacing + cspace),
     /// excluded from fit tests and from a line's last character.
     char_spacing: f32,
+    /// Bold spacing included in `advance` (excluded from maxAdvance).
+    style_spacing: f32,
 }
 
 fn shape<F: FontProvider>(p: &Parsed, s: &Settings, fonts: &mut F) -> Vec<Shaped> {
@@ -847,11 +1024,15 @@ fn shape<F: FontProvider>(p: &Parsed, s: &Settings, fonts: &mut F) -> Vec<Shaped
         if small {
             size *= 0.8;
         }
+        // Small caps keep the full-size element ascender / descender.
+        let metric_size = if small { size / 0.8 } else { size };
         let mut info = CharInfo {
-            character: e.cp,
+            // TMP reports the case-converted character and the tag size
+            // (not reduced by <sup>/<sub> or small caps).
+            character: cp,
             index: e.src as i32,
-            string_length: 1,
-            point_size: size,
+            string_length: e.len as i32,
+            point_size: st.size,
             style: st.style,
             color: {
                 let mut c = st.color;
@@ -875,9 +1056,28 @@ fn shape<F: FontProvider>(p: &Parsed, s: &Settings, fonts: &mut F) -> Vec<Shaped
         let face0 = fonts.face(st.font);
         let mut advance;
         let mut extent_right = 0.0;
+        let mut style_spacing = 0.0;
         let mut scale;
         let mut face = face0;
-        if let Some(sp) = e.sprite {
+        // Glyph lookup (with the provider's fallback chain). A character found
+        // nowhere becomes a sprite with that unicode if one exists (emoji), or
+        // else the missing-glyph character U+25A1 (then '?'), which TMP then
+        // reports as the element's character.
+        let invisible_ctrl = is_nl || matches!(cp, 0x200B | 0xAD | 0x2060 | 0x200C | 0x200D);
+        let mut found = if e.sprite.is_some() || invisible_ctrl { None } else { fonts.glyph(st.font, cp) };
+        let mut esprite = e.sprite;
+        if e.sprite.is_none() && !invisible_ctrl && found.is_none() && !is_space(cp) && cp >= 0x20 {
+            if let Some(sp) = fonts.sprite_by_unicode(cp) {
+                esprite = Some(sp);
+            } else if let Some(x) = fonts.glyph(st.font, 0x25A1) {
+                found = Some(x);
+                info.character = 0x25A1;
+            } else if let Some(x) = fonts.glyph(st.font, '?' as u32) {
+                found = Some(x);
+                info.character = '?' as u32;
+            }
+        }
+        if let Some(sp) = esprite {
             info.element_type = ElementType::Sprite;
             info.sprite = Some(sp);
             // Sprites scale to the current font's ascent line (TMP behaviour: sprite
@@ -898,18 +1098,7 @@ fn shape<F: FontProvider>(p: &Parsed, s: &Settings, fonts: &mut F) -> Vec<Shaped
             extent_right = (sp.bearing_x + sp.width) * sprite_scale;
             prev = None;
         } else {
-            let found = if is_nl || cp == 0x200B || cp == 0xAD || cp == 0x2060 || cp == 0x200C || cp == 0x200D { None } else { fonts.glyph(st.font, cp) };
-            let (font_used, g) = match found {
-                Some(x) => x,
-                None => {
-                    if !is_nl && !is_space(cp) && cp >= 0x20 && cp != 0x200B && cp != 0xAD && cp != 0x2060 && cp != 0x200C && cp != 0x200D {
-                        // Missing glyph: substitute U+25A1 then '?' as TMP's documented fallback does.
-                        fonts.glyph(st.font, 0x25A1).or_else(|| fonts.glyph(st.font, '?' as u32)).unwrap_or((st.font, GlyphInfo::default()))
-                    } else {
-                        (st.font, GlyphInfo::default())
-                    }
-                }
-            };
+            let (font_used, g) = found.unwrap_or((st.font, GlyphInfo::default()));
             face = fonts.face(font_used);
             scale = size / face.point_size.max(1.0) * unit;
             // Elements from a fallback font are scaled so the size matches the
@@ -921,11 +1110,13 @@ fn shape<F: FontProvider>(p: &Parsed, s: &Settings, fonts: &mut F) -> Vec<Shaped
             info.uv_rect = g.rect;
             info.atlas_index = g.atlas_index;
             info.atlas_size = g.atlas_size;
-            info.elem_ascender = face.ascent * scale;
-            info.elem_descender = face.descent * scale;
+            let metric_scale = metric_size / face.point_size.max(1.0) * unit;
+            info.elem_ascender = face.ascent * metric_scale;
+            info.elem_descender = face.descent * metric_scale;
             let mut adv = g.advance;
             if st.style & style::BOLD != 0 {
                 adv += face.bold_spacing * face.point_size / 100.0;
+                style_spacing = face.bold_spacing * face.point_size / 100.0 * scale;
             } else {
                 adv += face.normal_spacing_offset * face.point_size / 100.0;
             }
@@ -977,7 +1168,7 @@ fn shape<F: FontProvider>(p: &Parsed, s: &Settings, fonts: &mut F) -> Vec<Shaped
         }
         info.is_space = is_space(cp);
         info.is_newline = is_nl;
-        info.break_after = is_breaking_space(cp) || cp == '-' as u32 || cp == 0x2010 || cp == 0xAD || is_cjk(cp) || cp == 0x200B;
+        info.break_after = is_breaking_space(cp) || cp == '-' as u32 || cp == 0x2010 || cp == 0xAD || cp == 0x200B;
         out.push(Shaped {
             info,
             advance,
@@ -994,11 +1185,31 @@ fn shape<F: FontProvider>(p: &Parsed, s: &Settings, fonts: &mut F) -> Vec<Shaped
             scale,
             word_spacing_extra: word_extra,
             char_spacing,
+            style_spacing,
         });
         let _ = &mut scale;
     }
+    // CJK: a line may break between two characters when either is CJK, unless
+    // the first may not end a line (leading set: opening brackets…) or the
+    // second may not start one (following set: closing punctuation, small kana…).
+    let (leading, following) = fonts.line_breaking_rules().unwrap_or_else(|| (DEFAULT_LEADING.to_string(), DEFAULT_FOLLOWING.to_string()));
+    let lead: Vec<u32> = leading.chars().map(|c| c as u32).collect();
+    let follow: Vec<u32> = following.chars().map(|c| c as u32).collect();
+    for i in 0..out.len().saturating_sub(1) {
+        let (a, b) = (out[i].info.character, out[i + 1].info.character);
+        if (is_cjk(a) || is_cjk(b)) && !lead.contains(&a) && !follow.contains(&b) {
+            out[i].info.break_after = true;
+        }
+    }
     out
 }
+
+/// Default kinsoku sets (JIS X 4051 classes): characters that may not end a
+/// line (opening brackets and quotes) …
+pub const DEFAULT_LEADING: &str = "([{\u{FF5B}\u{3014}\u{3008}\u{300A}\u{300C}\u{300E}\u{3010}\u{3018}\u{3016}\u{301D}\u{2018}\u{201C}\u{FF5F}\u{AB}\u{FF3B}\u{FF08}";
+/// … and characters that may not start one (closing brackets, punctuation,
+/// small kana, iteration and prolonged-sound marks).
+pub const DEFAULT_FOLLOWING: &str = ")]}\u{FF5D}\u{3015}\u{3009}\u{300B}\u{300D}\u{300F}\u{3011}\u{3019}\u{3017}\u{301F}\u{2019}\u{201D}\u{FF60}\u{BB}\u{30FD}\u{30FE}\u{30FC}\u{30A1}\u{30A3}\u{30A5}\u{30A7}\u{30A9}\u{30C3}\u{30E3}\u{30E5}\u{30E7}\u{30EE}\u{30F5}\u{30F6}\u{3041}\u{3043}\u{3045}\u{3047}\u{3049}\u{3063}\u{3083}\u{3085}\u{3087}\u{308E}\u{3095}\u{3096}\u{3005}\u{303B}\u{2010}\u{30A0}\u{2013}\u{301C}?!\u{203C}\u{2047}\u{2048}\u{2049}\u{30FB}\u{3001}%,.:;\u{3002}\u{FF01}\u{FF1F}\u{FF3D}\u{FF09}\u{FF1A}\u{FF1B}\u{FF1D}\u{FF0C}\u{FF0E}";
 
 struct LineSpan {
     start: usize,
@@ -1255,7 +1466,7 @@ pub fn layout_at<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size:
             }
             x += e.advance;
             if !e.info.is_space {
-                last_vis_end = x - e.char_spacing;
+                last_vis_end = x - e.char_spacing - e.style_spacing;
             }
         }
         best.max(last_vis_end) + ml + mr
@@ -1332,6 +1543,8 @@ pub fn layout_at<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size:
     // Truncate / Ellipsis: processing stops at the overflowing element `o`, which
     // TMP keeps in the character list as an invisible zero-width element.
     let mut cut_at = sh.len();
+    let lines_before = lines.len();
+    let mut ellipsis_vertical = false;
     let stop: Option<(usize, usize)> = if keep_lines < lines.len() && keep_lines > 0 {
         Some((keep_lines - 1, lines[keep_lines].start))
     } else if matches!(s.overflow, Overflow::Ellipsis | Overflow::Truncate) {
@@ -1371,6 +1584,7 @@ pub fn layout_at<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size:
                     e.info.atlas_size = eg.atlas_size;
                     e.info.is_visible = true;
                     e.info.is_space = false;
+                    e.info.no_word = true;
                     e.advance = e_adv;
                     e.char_spacing = 0.0;
                     e.scale = sc;
@@ -1382,6 +1596,9 @@ pub fn layout_at<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size:
                     z.advance = 0.0;
                     z.char_spacing = 0.0;
                     z.info.is_visible = false;
+                    z.info.no_word = true;
+                    z.info.ellipsis_tail = true;
+                    ellipsis_vertical = vertical;
                 }
                 lines[li].end = cut_at;
             }
@@ -1395,6 +1612,7 @@ pub fn layout_at<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size:
                 z.advance = 0.0;
                 z.char_spacing = 0.0;
                 z.info.is_visible = false;
+                z.info.no_word = true;
             }
             let _ = end_x;
             lines[li].end = cut_at;
@@ -1404,6 +1622,7 @@ pub fn layout_at<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size:
         vl.truncate(keep_lines.max(1));
         cut_at = lines.last().map(|l| l.end).unwrap_or(0);
     }
+    let truncated = cut_at < sh.len() || lines.len() < lines_before;
     sh.truncate(cut_at.min(sh.len()));
     xs.truncate(sh.len());
 
@@ -1466,7 +1685,7 @@ pub fn layout_at<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size:
     }
 
     // Build character infos.
-    let mut out = Layout { font_size: size, first_overflow_character_index: first_overflow, is_text_overflowing: is_overflowing, ..Default::default() };
+    let mut out = Layout { font_size: size, first_overflow_character_index: first_overflow, is_text_overflowing: is_overflowing, overflow_mode_page: s.overflow == Overflow::Page, ..Default::default() };
     let mut chars: Vec<CharInfo> = Vec::with_capacity(sh.len());
     let mut rendered_min = V2::new(f32::INFINITY, f32::INFINITY);
     let mut rendered_max = V2::new(f32::NEG_INFINITY, f32::NEG_INFINITY);
@@ -1474,6 +1693,8 @@ pub fn layout_at<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size:
     let max_vis_lines = s.max_visible_lines.max(0) as usize;
     let mut word_count_total = 0;
     let mut max_line_width = 0.0f32;
+    let mut shift_first = vec![0.0f32; lines.len()];
+    let mut shift_last = vec![0.0f32; lines.len()];
     for (li, ln) in lines.iter().enumerate() {
         let v = &vl[li];
         let halign = sh.get(ln.start).and_then(|e| e.halign).unwrap_or(s.halign);
@@ -1552,8 +1773,11 @@ pub fn layout_at<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size:
         let mut ext_max = V2::new(f32::NEG_INFINITY, f32::NEG_INFINITY);
         let mut jx = 0.0f32;
         let mut vis_seen = 0;
-        let mut in_word = false;
-        let mut max_adv = line_left + dx;
+        let mut max_adv_pre = f32::NEG_INFINITY;
+        let mut run_asc = f32::NEG_INFINITY;
+        let mut run_desc = f32::INFINITY;
+        let mut ext_pre_max = f32::NEG_INFINITY;
+        let mut ext_pre_pad = 0.0f32;
         let last_vis_idx = (ln.start..ln.end).rev().find(|&i| !sh[i].info.is_space && !sh[i].info.is_newline);
         for i in ln.start..ln.end {
             let e = &sh[i];
@@ -1566,6 +1790,12 @@ pub fn layout_at<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size:
                 }
             }
             let origin = line_left + dx + xs[i] + jx;
+            if i == ln.start {
+                shift_first[li] = dx + jx;
+            }
+            if i + 1 == ln.end {
+                shift_last[li] = dx + jx;
+            }
             if !c.is_space && !c.is_newline {
                 vis_seen += 1;
             }
@@ -1580,19 +1810,51 @@ pub fn layout_at<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size:
             c.base_line = v.baseline + c.voffset;
             c.ascender = v.baseline + c.elem_ascender + c.voffset;
             c.descender = v.baseline + c.elem_descender + c.voffset;
+            run_asc = run_asc.max(c.ascender);
+            run_desc = run_desc.min(c.descender);
+            if is_whitespace(c.character) {
+                // White space reports the line's extremes so far.
+                c.ascender = run_asc;
+                c.descender = run_desc;
+            }
+            if c.no_word {
+                // Overflow placeholders (ellipsis slot, cut point) sit on the baseline.
+                c.ascender = c.base_line;
+                c.descender = c.base_line;
+            }
             c.line_number = li as i32;
             c.page_number = page_of_line.get(li).copied().unwrap_or(0);
             let [gw, gh, bx, by, _] = c.glyph_metrics;
             let sc = c.scale;
             let p = if c.element_type == ElementType::Sprite { 0.0 } else { pad };
-            let x0 = origin + (bx - p) * sc;
-            let x1 = origin + (bx + gw + p) * sc;
+            // Bold glyphs get extra horizontal padding (the dilated outline).
+            let px = if c.element_type != ElementType::Sprite && c.style & style::BOLD != 0 {
+                let f = fonts.face(c.font);
+                p + f.bold_style / 4.0 * f.atlas_padding
+            } else {
+                p
+            };
+            let x0 = origin + (bx - px) * sc;
+            let x1 = origin + (bx + gw + px) * sc;
             let y0 = c.base_line + (by - gh - p) * sc;
             let y1 = c.base_line + (by + p) * sc;
-            c.bottom_left = V2::new(x0, y0);
-            c.top_left = V2::new(x0, y1);
-            c.top_right = V2::new(x1, y1);
-            c.bottom_right = V2::new(x1, y0);
+            // Italic: shear about half the cap height above the baseline by
+            // the font asset's italic style (35 → 0.35).
+            let (sb, st) = if c.style & style::ITALIC != 0 && c.element_type != ElementType::Sprite {
+                let f = fonts.face(c.font);
+                let k = f.italic_style * 0.01;
+                let mid = c.base_line + f.cap_line * sc * 0.5;
+                // The slant is measured over the glyph box padded like the
+                // quad's sides (bold pads more horizontally than vertically).
+                let (sy0, sy1) = (c.base_line + (by - gh - px) * sc, c.base_line + (by + px) * sc);
+                (k * (sy0 - mid), k * (sy1 - mid))
+            } else {
+                (0.0, 0.0)
+            };
+            c.bottom_left = V2::new(x0 + sb, y0);
+            c.top_left = V2::new(x0 + st, y1);
+            c.top_right = V2::new(x1 + st, y1);
+            c.bottom_right = V2::new(x1 + sb, y0);
             c.aspect_ratio = if gh > 0.0 { (gw + 2.0 * p) / (gh + 2.0 * p) } else { 0.0 };
             if !c.is_newline && (c.is_visible || c.is_space) {
                 if c.is_visible {
@@ -1600,16 +1862,31 @@ pub fn layout_at<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size:
                 }
                 rendered_max.x = rendered_max.x.max(x_adv);
             }
-            if c.is_visible && li < max_vis_lines {
-                ext_min.x = ext_min.x.min(x0);
-                ext_max.x = ext_max.x.max(x1);
+            if i == ln.start && !c.is_visible && !c.is_newline {
+                // A line that opens with white space starts its extents there.
+                ext_min.x = ext_min.x.min(c.bottom_left.x);
+                rendered_min.x = rendered_min.x.min(origin);
+            }
+            if c.is_visible {
+                // Extents use the (possibly sheared) quad corners.
+                let qx0 = c.bottom_left.x.min(c.top_left.x);
+                let qx1 = c.top_right.x.max(c.bottom_right.x);
+                ext_min.x = ext_min.x.min(qx0);
+                ext_max.x = ext_max.x.max(qx1);
+                let pre = qx1 - dx - jx;
+                if pre >= ext_pre_max {
+                    ext_pre_max = pre;
+                    ext_pre_pad = p * sc;
+                }
+                max_adv_pre = max_adv_pre.max(line_left + xs[i] + e.advance - e.char_spacing - e.style_spacing);
                 if info.first_visible_character_index < 0 {
                     info.first_visible_character_index = chars.len() as i32;
                 }
                 info.last_visible_character_index = chars.len() as i32;
                 info.visible_character_count += 1;
-                max_adv = max_adv.max(x_adv);
-            } else if c.is_space {
+            } else if c.no_word && c.ellipsis_tail {
+                info.visible_character_count += 1;
+            } else if is_whitespace(c.character) {
                 info.space_count += 1;
                 if xs[i] < content_end {
                     info.visible_space_count += 1;
@@ -1617,19 +1894,6 @@ pub fn layout_at<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size:
             }
             if c.is_space && !c.is_visible {
                 // spaces still extend max advance if followed by visible content
-            }
-            let word_char = !c.is_space && !c.is_newline && char::from_u32(c.character).is_some_and(|ch| ch.is_alphanumeric() || ch == '\'' || ch == '-' || c.element_type == ElementType::Sprite);
-            if word_char && !in_word {
-                in_word = true;
-                info.word_count += 1;
-                out.words.push(WordInfo { first_character_index: chars.len() as i32, last_character_index: chars.len() as i32, character_count: 1 });
-            } else if word_char {
-                if let Some(w) = out.words.last_mut() {
-                    w.last_character_index = chars.len() as i32;
-                    w.character_count += 1;
-                }
-            } else {
-                in_word = false;
             }
             chars.push(c);
         }
@@ -1640,11 +1904,26 @@ pub fn layout_at<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size:
         }
         info.last_character_index = chars.len() as i32 - 1;
         info.character_count = info.last_character_index - info.first_character_index + 1;
-        info.max_advance = max_adv;
-        info.length = if ext_max.x.is_finite() { max_adv - (line_left + dx) } else { 0.0 };
+        // Pre-alignment advance end; the alignment shift is added after all
+        // lines are known (TMP adds the next line's first-character shift).
+        info.max_advance = if max_adv_pre.is_finite() { max_adv_pre } else { line_left };
+        // Length: right edge of the furthest glyph quad from the line's left
+        // edge; lines closed by a line feed or the end of the text measure the
+        // glyph without its quad padding.
+        let soft_end = !ln.ends_paragraph && (li + 1 < lines.len() || truncated);
+        info.length = if ext_pre_max.is_finite() { ext_pre_max - line_left - if soft_end { 0.0 } else { ext_pre_pad } } else { 0.0 };
         if !ext_min.x.is_finite() {
-            ext_min.x = line_left + dx;
-            ext_max.x = line_left + dx;
+            // No visible glyph: the extents are the last character's (empty) quad.
+            match chars.last() {
+                Some(c) if ln.end > ln.start => {
+                    ext_min.x = c.bottom_left.x;
+                    ext_max.x = c.top_right.x;
+                }
+                _ => {
+                    ext_min.x = line_left + dx;
+                    ext_max.x = line_left + dx;
+                }
+            }
         }
         ext_min.y = info.descender;
         ext_max.y = info.ascender;
@@ -1659,6 +1938,57 @@ pub fn layout_at<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size:
         out.lines.push(info);
     }
     let _ = word_count_total;
+    // Words: maximal runs of word characters over the whole text (a word may
+    // span lines).
+    {
+        let first_vis = s.first_visible_character.max(0) as usize;
+        let alnum = |c: &CharInfo| char::from_u32(c.character).is_some_and(|ch| ch.is_alphanumeric());
+        let is_word = |i: usize, c: &CharInfo| -> bool {
+            if i < first_vis || c.no_word {
+                return false;
+            }
+            if is_word_char(c) {
+                return true;
+            }
+            // An apostrophe between letters or digits joins them (don't, rock’n’roll).
+            matches!(c.character, 0x27 | 0x2019) && i > 0 && i + 1 < chars.len() && alnum(&chars[i - 1]) && alnum(&chars[i + 1])
+        };
+        if let Some(c0) = chars.first() {
+            // A text that opens with a character that is neither part of a word
+            // nor punctuation (white space, a symbol, a hidden character)
+            // records an empty word at index 0 (first 0, last -1).
+            if !is_word(0, c0) && (first_vis > 0 || !is_punctuation(c0.character)) {
+                out.words.push(WordInfo { first_character_index: 0, last_character_index: -1, character_count: 0 });
+                if let Some(l) = out.lines.first_mut() {
+                    l.word_count += 1;
+                }
+            }
+        }
+        let mut i = 0;
+        while i < chars.len() {
+            if !is_word(i, &chars[i]) {
+                i += 1;
+                continue;
+            }
+            let mut j = i;
+            while j + 1 < chars.len() && is_word(j + 1, &chars[j + 1]) {
+                j += 1;
+            }
+            out.words.push(WordInfo { first_character_index: i as i32, last_character_index: j as i32, character_count: (j - i + 1) as i32 });
+            // A word is counted on the line of the character that closes it.
+            let ln = chars.get(j + 1).unwrap_or(&chars[j]).line_number.max(0) as usize;
+            if let Some(l) = out.lines.get_mut(ln) {
+                l.word_count += 1;
+            }
+            i = j + 1;
+        }
+    }
+    // TMP reports maxAdvance shifted by the alignment offset of the following
+    // line's first character (the last line uses its own last character).
+    for li in 0..out.lines.len() {
+        let d = if li + 1 < out.lines.len() { shift_first[li + 1] } else { shift_last[li] };
+        out.lines[li].max_advance += d;
+    }
     // Visibility limits.
     let first_vis = s.first_visible_character.max(0);
     let mut vis_chars = 0i32;
@@ -1678,7 +2008,7 @@ pub fn layout_at<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size:
         if !c.is_visible {
             continue;
         }
-        let visible_by_count = (i as i32) >= first_vis && vis_chars < s.max_visible_characters;
+        let visible_by_count = (i as i32) >= first_vis && (i as i32) < s.max_visible_characters;
         let visible_by_line = (c.line_number as usize) < max_vis_lines;
         let visible_by_word = word_of[i] < 0 || word_of[i] < max_words;
         let visible_by_page = s.overflow != Overflow::Page || c.page_number == page_display;
@@ -1690,7 +2020,11 @@ pub fn layout_at<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size:
         }
     }
     // Space count and decorations.
-    out.space_count = chars.iter().filter(|c| c.is_space).count() as i32;
+    out.space_count = chars.iter().filter(|c| is_whitespace(c.character)).count() as i32;
+    if ellipsis_vertical {
+        // A vertical-overflow ellipsis also counts its zero-width tail as a space.
+        out.space_count += 1;
+    }
     out.sprite_count = chars.iter().filter(|c| c.element_type == ElementType::Sprite).count() as i32;
     build_decorations(&chars, fonts, &mut out, unit);
     // Pages.

@@ -1,0 +1,14 @@
+{
+ "font": "Inter-Regular.ttf",
+ "component": "ugui",
+ "rect": [
+  900,
+  400
+ ],
+ "text": "</pos>x</space>x</page>x</br>x</sprite>x</zwsp>x</nbsp>x</shy>x</width>x</rotate>x</gradient>x</font-weight>x</a>x</mark>x</cspace>x</mspace>x</voffset>x</indent>x</line-height>x</line-indent>x</align>x</allcaps>x</uppercase>x</lowercase>x</smallcaps>x</nobr>x</sup>x</sub>x</material>x</link>x</style>x</font>x</size>x</color>x</u>x</s>x</i>x</b>x</noparse>x</margin>x</alpha>x</action>x</fade>x</zwj>x</underline>x</strikethrough>x</margin-left>x</margin-right>x</foo>x",
+ "props": {
+  "fontSize": 16,
+  "alignment": "TopLeft",
+  "textWrappingMode": "Normal"
+ }
+}
