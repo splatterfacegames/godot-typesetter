@@ -1652,7 +1652,7 @@ pub fn layout_at<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size:
                 if first_overflow < 0 {
                     first_overflow = sh.get(lines[i].start).map(|e| e.info.index).unwrap_or(-1);
                 }
-                if matches!(s.overflow, Overflow::Ellipsis | Overflow::Truncate) {
+                if matches!(s.overflow, Overflow::Ellipsis | Overflow::Truncate | Overflow::Linked) {
                     keep_lines = i;
                     if s.overflow == Overflow::Ellipsis {
                         ellipsis_line = Some(i - 1);
@@ -1694,7 +1694,7 @@ pub fn layout_at<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size:
     let mut ellipsis_vertical = false;
     let stop: Option<(usize, usize)> = if keep_lines < lines.len() && keep_lines > 0 {
         Some((keep_lines - 1, lines[keep_lines].start))
-    } else if matches!(s.overflow, Overflow::Ellipsis | Overflow::Truncate) {
+    } else if matches!(s.overflow, Overflow::Ellipsis | Overflow::Truncate | Overflow::Linked) {
         h_overflow.map(|o| (lines.iter().position(|l| o >= l.start && o < l.end).unwrap_or(0), o))
     } else {
         None
@@ -2274,14 +2274,15 @@ pub fn layout_at<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size:
         l.link_text_length = l.link_text_length.min(max_len);
     }
     if skipped > 0 {
-        // The skipped elements' values: zeros with the first line's offsets
-        // added twice (as TMP reports them).
-        let (lx, by) = match (out.lines.first(), chars.get(skipped)) {
-            (Some(l), Some(_)) => (left + l.margin_left, l.baseline),
-            _ => (left, top),
+        // Skipped elements are empty, at the start of the first line. (TMP
+        // leaves them unprocessed: whatever an earlier layout pass left there,
+        // offset again by each pass, so their values are not comparable.)
+        let (lx, by) = match out.lines.first() {
+            Some(l) => (left + l.margin_left, l.baseline),
+            None => (left, top),
         };
         for c in chars.iter_mut().take(skipped) {
-            let (x, y) = (2.0 * lx, 2.0 * by);
+            let (x, y) = (lx, by);
             c.origin = x;
             c.x_advance = x;
             c.base_line = y;
@@ -2293,8 +2294,6 @@ pub fn layout_at<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size:
             c.bottom_right = V2::new(x, y);
             c.color = [0.0; 4];
         }
-        rendered_min.x = rendered_min.x.min(2.0 * lx);
-        rendered_max.y = rendered_max.y.max(2.0 * by);
     }
     // Rendered bounds.
     if rendered_min.x.is_finite() {

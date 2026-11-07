@@ -464,10 +464,20 @@ fn c32(c: [f32; 4]) -> [i64; 4] {
     c.map(|x| (x.clamp(0.0, 1.0) * 255.0).round() as i64)
 }
 
-fn compare(l: &Layout, truth: &Value, cmp: &mut Cmp, prefix: &str) {
+/// `skip`: leading characters TMP leaves unprocessed (before
+/// firstVisibleCharacter): their reported values are stale data from earlier
+/// layout passes, so only their codes and visibility are compared, and the
+/// rendered values (which include them) are not.
+fn compare(l: &Layout, truth: &Value, cmp: &mut Cmp, prefix: &str, skip: usize) {
     let tc = truth["characters"].as_array().unwrap();
     cmp.eq(&format!("{prefix}chars"), "", l.characters.len(), tc.len());
     for (i, (c, t)) in l.characters.iter().zip(tc.iter()).enumerate() {
+        if i < skip {
+            let tcode: u32 = t["character"].as_str().and_then(|x| x.parse().ok()).unwrap_or(0);
+            cmp.eq(&format!("{prefix}code"), &format!("[{i}]"), c.character & 0xFFFF, tcode);
+            cmp.eq(&format!("{prefix}visible"), &format!("[{i}]"), c.is_visible, t["isVisible"].as_bool().unwrap_or(false));
+            continue;
+        }
         let at = format!("[{i}]");
         let k = |s: &str| format!("{prefix}{s}");
         let tcode: u32 = t["character"].as_str().and_then(|x| x.parse().ok()).unwrap_or(0);
@@ -545,10 +555,12 @@ fn compare(l: &Layout, truth: &Value, cmp: &mut Cmp, prefix: &str) {
     cmp.eq(&format!("{prefix}overflowing"), "", l.is_text_overflowing, truth["isTextOverflowing"].as_bool().unwrap_or(false));
     cmp.eq(&format!("{prefix}firstOverflow"), "", l.first_overflow_character_index as i64, truth["firstOverflowCharacterIndex"].as_i64().unwrap_or(-1));
     cmp.eq(&format!("{prefix}counts"), "", (l.space_count, l.sprite_count), (truth["spaceCount"].as_i64().unwrap_or(0) as i32, truth["spriteCount"].as_i64().unwrap_or(0) as i32));
-    let rv = l.rendered_size();
-    let trv = &truth["getRenderedValues"];
-    cmp.num(&format!("{prefix}renderedW"), "", rv.x, f(&trv[0]));
-    cmp.num(&format!("{prefix}renderedH"), "", rv.y, f(&trv[1]));
+    if skip == 0 {
+        let rv = l.rendered_size();
+        let trv = &truth["getRenderedValues"];
+        cmp.num(&format!("{prefix}renderedW"), "", rv.x, f(&trv[0]));
+        cmp.num(&format!("{prefix}renderedH"), "", rv.y, f(&trv[1]));
+    }
 }
 
 fn main() {
@@ -580,16 +592,19 @@ fn main() {
         let text = case["text"].as_str().unwrap_or("");
         let l = layout::layout(text, &s, &mut prov);
         let mut cmp = Cmp::default();
-        compare(&l, &truth, &mut cmp, "");
+        compare(&l, &truth, &mut cmp, "", s.first_visible_character.max(0) as usize);
         if let Some(lt) = truth.get("linked") {
-            // The linked component shows the text from the first overflowing character.
-            let mut s2 = s.clone();
+            // The linked component (a fresh component with default properties)
+            // shows the text from the primary's first overflowing character.
             let lr = &case["linked"]["rect"];
-            s2.rect = [-f(&lr[0]) * 0.5, -f(&lr[1]) * 0.5, f(&lr[0]), f(&lr[1])];
-            s2.overflow = Overflow::Overflow;
-            s2.first_visible_character = l.first_overflow_character_index.max(0);
+            let s2 = Settings {
+                rect: [-f(&lr[0]) * 0.5, -f(&lr[1]) * 0.5, f(&lr[0]), f(&lr[1])],
+                kerning: true,
+                first_visible_character: l.first_overflow_character_index.max(0),
+                ..Default::default()
+            };
             let l2 = layout::layout(text, &s2, &mut prov);
-            compare(&l2, lt, &mut cmp, "linked.");
+            compare(&l2, lt, &mut cmp, "linked.", s2.first_visible_character as usize);
         }
         let pw = l.preferred_width - f(&truth["preferredWidth"]);
         let ph = l.preferred_height - f(&truth["preferredHeight"]);
