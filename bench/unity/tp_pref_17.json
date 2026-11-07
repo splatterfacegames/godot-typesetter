@@ -1,0 +1,385 @@
+{
+  "fontSize": 20,
+  "preferredWidth": 22.32,
+  "preferredHeight": 24.21,
+  "renderedWidth": 22.31424,
+  "renderedHeight": 24.20455,
+  "getPreferredValues": [22.32, 24.21],
+  "getRenderedValues": [22.31424, 24.20455],
+  "getRenderedValuesVisible": [22.31424, 24.20455],
+  "isTextOverflowing": false,
+  "firstOverflowCharacterIndex": -1,
+  "textBounds": {
+    "center": [-438.8429, 37.89773, 0],
+    "size": [22.31424, 24.20455, 0]
+  },
+  "bounds": {
+    "center": [-224.62674, 20.97743, 0],
+    "size": [449.25348, 41.95486, 0]
+  },
+  "rect": [-450, -50, 900, 100],
+  "characterCount": 3,
+  "spriteCount": 0,
+  "spaceCount": 0,
+  "wordCount": 1,
+  "linkCount": 0,
+  "lineCount": 1,
+  "pageCount": 1,
+  "materialCount": 1,
+  "characters": [
+    {
+      "alternativeGlyph": null,
+      "ascender": 50,
+      "aspectRatio": 0.78168,
+      "baseLine": 30.625,
+      "bottomLeft": [-449.25348, 30.09028, 0],
+      "bottomRight": [-439.97916, 30.09028, 0],
+      "character": "97",
+      "color": [255, 255, 255, 255],
+      "descender": 25.79545,
+      "elementType": "Character",
+      "fontAsset": "Inter-Regular_90_9_SDFAA_1024x1024",
+      "highlightColor": [0, 0, 0, 0],
+      "highlightState": {
+        "color": [255, 255, 255, 255],
+        "padding": {
+          "bottom": 0,
+          "horizontal": 0,
+          "left": 0,
+          "right": 0,
+          "top": 0,
+          "vertical": 0
+        }
+      },
+      "index": 0,
+      "isUsingAlternateTypeface": false,
+      "isVisible": true,
+      "lineNumber": 0,
+      "material": "Inter - Regular Material",
+      "materialReferenceIndex": 0,
+      "origin": -450,
+      "pageNumber": 0,
+      "pointSize": 20,
+      "scale": 0.22222,
+      "strikethroughColor": [255, 255, 255, 255],
+      "strikethroughVertexIndex": 0,
+      "stringLength": 1,
+      "style": "Normal",
+      "textElement": {},
+      "topLeft": [-449.25348, 41.95486, 0],
+      "topRight": [-439.97916, 41.95486, 0],
+      "underlineColor": [255, 255, 255, 255],
+      "underlineVertexIndex": 0,
+      "vertex_BL": {
+        "color": [255, 255, 255, 255],
+        "position": [-449.25348, 30.09028, 0],
+        "uv": [0.14722, 0.00854, 0, 0.22222],
+        "uv2": [0, 0]
+      },
+      "vertex_BR": {
+        "color": [255, 255, 255, 255],
+        "position": [-439.97916, 30.09028, 0],
+        "uv": [0.18872, 0.00854, 0, 0.22222],
+        "uv2": [1, 0]
+      },
+      "vertex_TL": {
+        "color": [255, 255, 255, 255],
+        "position": [-449.25348, 41.95486, 0],
+        "uv": [0.14722, 0.06177, 0, 0.22222],
+        "uv2": [0, 1]
+      },
+      "vertex_TR": {
+        "color": [255, 255, 255, 255],
+        "position": [-439.97916, 41.95486, 0],
+        "uv": [0.18872, 0.06177, 0, 0.22222],
+        "uv2": [1, 1]
+      },
+      "vertexIndex": 0,
+      "xAdvance": -438.72223
+    },
+    {
+      "alternativeGlyph": null,
+      "ascender": 40.3125,
+      "aspectRatio": 0.84161,
+      "baseLine": 30.625,
+      "bottomLeft": [-438.43576, 30.48611, 0],
+      "bottomRight": [-433.61111, 30.48611, 0],
+      "character": "120",
+      "color": [255, 255, 255, 255],
+      "descender": 28.21023,
+      "elementType": "Character",
+      "fontAsset": "Inter-Regular_90_9_SDFAA_1024x1024",
+      "highlightColor": [0, 0, 0, 0],
+      "highlightState": {
+        "color": [255, 255, 255, 255],
+        "padding": {
+          "bottom": 0,
+          "horizontal": 0,
+          "left": 0,
+          "right": 0,
+          "top": 0,
+          "vertical": 0
+        }
+      },
+      "index": 12,
+      "isUsingAlternateTypeface": false,
+      "isVisible": true,
+      "lineNumber": 0,
+      "material": "Inter - Regular Material",
+      "materialReferenceIndex": 0,
+      "origin": -438.72223,
+      "pageNumber": 0,
+      "pointSize": 10,
+      "scale": 0.11111,
+      "strikethroughColor": [255, 255, 255, 255],
+      "strikethroughVertexIndex": 0,
+      "stringLength": 1,
+      "style": "Normal",
+      "textElement": {},
+      "topLeft": [-438.43576, 36.21875, 0],
+      "topRight": [-433.61111, 36.21875, 0],
+      "underlineColor": [255, 255, 255, 255],
+      "underlineVertexIndex": 0,
+      "vertex_BL": {
+        "color": [255, 255, 255, 255],
+        "position": [-438.43576, 30.48611, 0],
+        "uv": [0.08765, 0.03491, 0, 0.11111],
+        "uv2": [0, 0]
+      },
+      "vertex_BR": {
+        "color": [255, 255, 255, 255],
+        "position": [-433.61111, 30.48611, 0],
+        "uv": [0.1311, 0.03491, 0, 0.11111],
+        "uv2": [1, 0]
+      },
+      "vertex_TL": {
+        "color": [255, 255, 255, 255],
+        "position": [-438.43576, 36.21875, 0],
+        "uv": [0.08765, 0.08618, 0, 0.11111],
+        "uv2": [0, 1]
+      },
+      "vertex_TR": {
+        "color": [255, 255, 255, 255],
+        "position": [-433.61111, 36.21875, 0],
+        "uv": [0.1311, 0.08618, 0, 0.11111],
+        "uv2": [1, 1]
+      },
+      "vertexIndex": 4,
+      "xAdvance": -433.32465
+    },
+    {
+      "alternativeGlyph": null,
+      "ascender": 40.3125,
+      "aspectRatio": 0.78168,
+      "baseLine": 30.625,
+      "bottomLeft": [-432.95139, 30.35764, 0],
+      "bottomRight": [-428.31424, 30.35764, 0],
+      "character": "97",
+      "color": [255, 255, 255, 255],
+      "descender": 28.21023,
+      "elementType": "Character",
+      "fontAsset": "Inter-Regular_90_9_SDFAA_1024x1024",
+      "highlightColor": [0, 0, 0, 0],
+      "highlightState": {
+        "color": [255, 255, 255, 255],
+        "padding": {
+          "bottom": 0,
+          "horizontal": 0,
+          "left": 0,
+          "right": 0,
+          "top": 0,
+          "vertical": 0
+        }
+      },
+      "index": 13,
+      "isUsingAlternateTypeface": false,
+      "isVisible": true,
+      "lineNumber": 0,
+      "material": "Inter - Regular Material",
+      "materialReferenceIndex": 0,
+      "origin": -433.32465,
+      "pageNumber": 0,
+      "pointSize": 10,
+      "scale": 0.11111,
+      "strikethroughColor": [255, 255, 255, 255],
+      "strikethroughVertexIndex": 0,
+      "stringLength": 1,
+      "style": "Normal",
+      "textElement": {},
+      "topLeft": [-432.95139, 36.28993, 0],
+      "topRight": [-428.31424, 36.28993, 0],
+      "underlineColor": [255, 255, 255, 255],
+      "underlineVertexIndex": 0,
+      "vertex_BL": {
+        "color": [255, 255, 255, 255],
+        "position": [-432.95139, 30.35764, 0],
+        "uv": [0.14722, 0.00854, 0, 0.11111],
+        "uv2": [0, 0]
+      },
+      "vertex_BR": {
+        "color": [255, 255, 255, 255],
+        "position": [-428.31424, 30.35764, 0],
+        "uv": [0.18872, 0.00854, 0, 0.11111],
+        "uv2": [1, 0]
+      },
+      "vertex_TL": {
+        "color": [255, 255, 255, 255],
+        "position": [-432.95139, 36.28993, 0],
+        "uv": [0.14722, 0.06177, 0, 0.11111],
+        "uv2": [0, 1]
+      },
+      "vertex_TR": {
+        "color": [255, 255, 255, 255],
+        "position": [-428.31424, 36.28993, 0],
+        "uv": [0.18872, 0.06177, 0, 0.11111],
+        "uv2": [1, 1]
+      },
+      "vertexIndex": 8,
+      "xAdvance": -427.68576
+    }
+  ],
+  "words": [
+    {
+      "characterCount": 3,
+      "firstCharacterIndex": 0,
+      "lastCharacterIndex": 2,
+      "textComponent": "text"
+    }
+  ],
+  "lines": [
+    {
+      "alignment": "Left",
+      "ascender": 50,
+      "baseline": 30.625,
+      "characterCount": 3,
+      "descender": 25.79545,
+      "firstCharacterIndex": 0,
+      "firstVisibleCharacterIndex": 0,
+      "lastCharacterIndex": 2,
+      "lastVisibleCharacterIndex": 2,
+      "length": 21.54688,
+      "lineExtents": {
+        "max": [-428.31424, 50],
+        "min": [-449.25348, 25.79545]
+      },
+      "lineHeight": 24.20455,
+      "marginLeft": 0,
+      "marginRight": 0,
+      "maxAdvance": -427.68576,
+      "spaceCount": 0,
+      "visibleCharacterCount": 3,
+      "visibleSpaceCount": 0,
+      "width": 900.00012,
+      "wordCount": 1
+    }
+  ],
+  "links": [],
+  "pages": [
+    {
+      "ascender": -32767,
+      "baseLine": 0,
+      "descender": 32767,
+      "firstCharacterIndex": 0,
+      "lastCharacterIndex": 0
+    }
+  ],
+  "meshes": [
+    {
+      "vertexCount": 12,
+      "vertices": [
+        [-449.25348, 30.09028, 0],
+        [-449.25348, 41.95486, 0],
+        [-439.97916, 41.95486, 0],
+        [-439.97916, 30.09028, 0],
+        [-438.43576, 30.48611, 0],
+        [-438.43576, 36.21875, 0],
+        [-433.61111, 36.21875, 0],
+        [-433.61111, 30.48611, 0],
+        [-432.95139, 30.35764, 0],
+        [-432.95139, 36.28993, 0],
+        [-428.31424, 36.28993, 0],
+        [-428.31424, 30.35764, 0]
+      ],
+      "uvs0": [
+        [0.14722, 0.00854, 0, 0.22222],
+        [0.14722, 0.06177, 0, 0.22222],
+        [0.18872, 0.06177, 0, 0.22222],
+        [0.18872, 0.00854, 0, 0.22222],
+        [0.08765, 0.03491, 0, 0.11111],
+        [0.08765, 0.08618, 0, 0.11111],
+        [0.1311, 0.08618, 0, 0.11111],
+        [0.1311, 0.03491, 0, 0.11111],
+        [0.14722, 0.00854, 0, 0.11111],
+        [0.14722, 0.06177, 0, 0.11111],
+        [0.18872, 0.06177, 0, 0.11111],
+        [0.18872, 0.00854, 0, 0.11111]
+      ],
+      "uvs2": [
+        [0, 0],
+        [0, 1],
+        [1, 1],
+        [1, 0],
+        [0, 0],
+        [0, 1],
+        [1, 1],
+        [1, 0],
+        [0, 0],
+        [0, 1],
+        [1, 1],
+        [1, 0]
+      ],
+      "colors32": [
+        [255, 255, 255, 255],
+        [255, 255, 255, 255],
+        [255, 255, 255, 255],
+        [255, 255, 255, 255],
+        [255, 255, 255, 255],
+        [255, 255, 255, 255],
+        [255, 255, 255, 255],
+        [255, 255, 255, 255],
+        [255, 255, 255, 255],
+        [255, 255, 255, 255],
+        [255, 255, 255, 255],
+        [255, 255, 255, 255]
+      ],
+      "material": "Inter - Regular Material"
+    }
+  ],
+  "asset": "Inter-Regular_90_9_SDFAA_1024x1024",
+  "material": {
+    "ID_MainTex": 0,
+    "ID_FaceColor": 0,
+    "ID_FaceDilate": 0,
+    "ID_UnderlayColor": 0,
+    "ID_UnderlayOffsetX": 0,
+    "ID_UnderlayOffsetY": 0,
+    "ID_UnderlayDilate": 0,
+    "ID_UnderlaySoftness": 0,
+    "ID_WeightNormal": 0,
+    "ID_WeightBold": 0.75,
+    "ID_OutlineWidth": 0,
+    "ID_OutlineSoftness": 0,
+    "ID_OutlineColor": 0,
+    "ID_GradientScale": 10,
+    "ID_ScaleX": 1,
+    "ID_ScaleY": 1,
+    "ID_PerspectiveFilter": 0.875,
+    "ID_Sharpness": 0,
+    "ID_TextureWidth": 1024,
+    "ID_TextureHeight": 1024,
+    "ID_ClipRect": 0,
+    "ID_MaskSoftnessX": 0,
+    "ID_MaskSoftnessY": 0,
+    "ID_VertexOffsetX": 0,
+    "ID_VertexOffsetY": 0,
+    "ID_StencilID": 0,
+    "ID_StencilOp": 0,
+    "ID_StencilComp": 8,
+    "ID_StencilReadMask": 255,
+    "ID_StencilWriteMask": 255,
+    "ID_ShaderFlags": 0,
+    "ID_ScaleRatio_A": 0.9,
+    "ID_ScaleRatio_B": 1,
+    "ID_ScaleRatio_C": 0.73125
+  }
+}

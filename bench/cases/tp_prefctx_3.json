@@ -1,0 +1,14 @@
+{
+ "font": "Inter-Regular.ttf",
+ "component": "ugui",
+ "rect": [
+  1500,
+  100
+ ],
+ "text": "<foo>bar</foo> <b=1>x</b> < spaced > ",
+ "props": {
+  "fontSize": 30,
+  "alignment": "TopLeft",
+  "textWrappingMode": "NoWrap"
+ }
+}

@@ -225,6 +225,18 @@ tp("justify_fit_left", "Justified text that wraps onto the next line", {"alignme
 rt("page_multiline", "Line one of page one\nline two<page>Page two first\nsecond<page>Three", {"overflowMode": "Page", "pageToDisplay": 2}, rect=(400, 200))
 rt("page_overflow_mode", "Page one text<page>Page two text<page>Three", {}, rect=(400, 200))
 
+PREF_PROBES = ["<b=1>x</b>", "<b c>x", "<#zzz>x", "<color>x</color>", "<size>x</size>", "<foo>x</foo>", "< spaced >", "<>x", "x</",
+               "<u=1>x", "<i=2>x", "<page=3>x", "<nobr=no>x", "<B>x", "<sup=1>x", "<COLOR=red>x", "<Size=40>x", "<size=10px>x",
+               "<pos=10px>x", "<cspace=2px>x", "<size=1.5em>x", "<color=#FFF5>x", "<link>x</link>", "<a>x</a>", "<margin>x",
+               "<mark=zz>x", "<alpha=#GG>x", "<rotate=x>x", "<size=abc>x", "<cspace=x>x", "<pos=a>x", "<font-weight=abc>x",
+               "<line-indent=q>x", "<b>x</b>", "<size=40>x</size>", "<voffset>x", "<width>x", "<alpha=80>x", "<sprite>x", "<style>x"]
+for k, t in enumerate(PREF_PROBES):
+    tp("pref_%02d" % k, "a" + t + "a", {"fontSize": 20, "textWrappingMode": "NoWrap"}, rect=(900, 100))
+
+UNK = ["<foo>bar</foo> ", "<b=1>x</b> ", "< spaced > ", "<color>nocolor</color> ", "<size>nosize</size> ", "<#zzz>bad ", "<> ", "a<b c> ", "</"]
+for k in range(1, len(UNK) + 1):
+    tp("prefctx_%d" % k, "".join(UNK[:k]), {"fontSize": 30, "textWrappingMode": "NoWrap"}, rect=(1500, 100))
+
 # --- atlas generation per render mode (ASCII, static set)
 for mode in ("SDF", "SDFAA", "SDFAA_HINTED", "SDF8", "SDF16", "SDF32", "SMOOTH", "SMOOTH_HINTED", "RASTER", "RASTER_HINTED"):
     case("atlas_" + mode.lower(), "AVg@", {"fontSize": 48, "textWrappingMode": "NoWrap"}, rect=(400, 100),

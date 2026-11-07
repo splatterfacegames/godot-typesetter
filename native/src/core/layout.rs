@@ -661,10 +661,8 @@ impl<'a> ParseState<'a> {
                     // Closing <cspace> takes the spacing back from the last
                     // character (and TMP then reports that character's
                     // xAdvance relative to the line's left edge).
-                    if self.st.cspace != 0.0 {
-                        if let Some(e) = self.elems.last_mut() {
-                            e.close_cspace = true;
-                        }
+                    if let Some(e) = self.elems.last_mut() {
+                        e.close_cspace = true;
                     }
                     self.st.cspace = 0.0
                 }
@@ -888,8 +886,12 @@ impl<'a> ParseState<'a> {
             "shy" => self.push_char(0xAD, ti, tl),
             "zwj" => self.push_char(0x200D, ti, tl),
             "link" | "a" => {
-                // `<a href="…">` takes its link id from the attribute name.
+                // `<a href="…">` takes its link id from the attribute name; a
+                // link tag without any id is consumed but records no link.
                 let id = if name == "a" && t.value.is_none() { t.attrs.first().map(|x| x.0.clone()).unwrap_or_default() } else { v.clone() };
+                if id.is_empty() {
+                    return true;
+                }
                 let hash = tag_hash(&id);
                 self.links.push(LinkInfo { link_id: id, link_text_first_character_index: self.elems.len() as i32, link_text_length: 0, hash_code: hash });
                 if name == "a" && t.attrs.iter().any(|(k, _)| k == "href") {
@@ -2072,6 +2074,15 @@ fn layout_adj<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size: f3
             c.top_left = V2::new(x0 + st, y1);
             c.top_right = V2::new(x1 + st, y1);
             c.bottom_right = V2::new(x1 + sb, y0);
+            if c.rotation != 0.0 {
+                // <rotate>: counter-clockwise about the quad's centre.
+                let (cx, cy) = ((x0 + x1) * 0.5, (y0 + y1) * 0.5);
+                let (sn, cs) = c.rotation.to_radians().sin_cos();
+                for q in [&mut c.bottom_left, &mut c.top_left, &mut c.top_right, &mut c.bottom_right] {
+                    let (dx, dy) = (q.x - cx, q.y - cy);
+                    *q = V2::new(cx + dx * cs - dy * sn, cy + dx * sn + dy * cs);
+                }
+            }
             c.aspect_ratio = if gh > 0.0 { (gw + 2.0 * p) / (gh + 2.0 * p) } else { 0.0 };
             if !c.is_newline && (c.is_visible || c.is_space) {
                 rendered_min.x = rendered_min.x.min(origin);
@@ -2087,8 +2098,9 @@ fn layout_adj<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size: f3
                 // last one's (possibly sheared) corners — not the extremes, so
                 // <pos> moving back left shortens them; maxAdvance and length
                 // likewise follow the last visible character.
-                let qx0 = c.bottom_left.x.min(c.top_left.x);
-                let qx1 = c.top_right.x.max(c.bottom_right.x);
+                // (TMP reads the bottom-left and top-right corners.)
+                let qx0 = c.bottom_left.x;
+                let qx1 = c.top_right.x;
                 if !ext_min.x.is_finite() {
                     ext_min.x = qx0;
                 }
