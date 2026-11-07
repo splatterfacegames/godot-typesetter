@@ -1,6 +1,9 @@
 //! Godot bindings.
 
 pub mod font_asset;
+pub mod info;
+pub mod mesh;
+pub mod text;
 
 use godot::prelude::*;
 

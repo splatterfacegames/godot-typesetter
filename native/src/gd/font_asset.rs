@@ -688,7 +688,7 @@ impl TypesetterFontAsset {
         let mut used: Vec<Vec<Rect>> = vec![Vec::new(); self.atlas_textures.len()];
         for g in self.rt.glyphs.values() {
             if g.rect[2] > 0 && (g.atlas_index as usize) < used.len() {
-                used[g.atlas_index as usize].push(Rect::new(g.rect[0] - pad, g.rect[1] - pad, g.rect[2] + 2 * pad, g.rect[3] + 2 * pad));
+                used[g.atlas_index as usize].push(Rect::new(g.rect[0] - pad - 1, g.rect[1] - pad - 1, g.rect[2] + 2 * pad + 1, g.rect[3] + 2 * pad + 1));
             }
         }
         let mut pages = Vec::new();
