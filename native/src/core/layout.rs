@@ -416,6 +416,8 @@ pub struct Layout {
     pub text_bounds_max: V2,
     /// Whether pages were laid out (overflow mode Page): `pages` is meaningful.
     pub overflow_mode_page: bool,
+    /// An unwrapped line runs past the right edge (auto-size fit test).
+    pub h_overflow: bool,
 }
 
 impl Layout {
@@ -1067,6 +1069,8 @@ struct Shaped {
     origin_offset: f32,
     /// Advance of the hyphen a soft hyphen shows when a line breaks there.
     shy_width: f32,
+    /// Horizontal squeeze (auto-size character width adjustment).
+    xk: f32,
 }
 
 fn shape<F: FontProvider>(p: &Parsed, s: &Settings, fonts: &mut F, text_size: f32) -> Vec<Shaped> {
@@ -1256,6 +1260,7 @@ fn shape<F: FontProvider>(p: &Parsed, s: &Settings, fonts: &mut F, text_size: f3
             style_spacing,
             origin_offset,
             shy_width,
+            xk: 1.0,
         });
         let _ = &mut scale;
     }
@@ -1418,22 +1423,31 @@ pub fn layout<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F) -> Layou
     // Auto size: largest size in [min, max] whose layout fits the rect.
     // Preferred values are reported at the maximum size.
     let mut best = auto_size_search(text, s, fonts);
-    let at_hi = layout_at(text, s, fonts, s.font_size_max.max(s.font_size_min));
+    let hi = s.font_size_max.max(s.font_size_min);
+    let mut at_hi = layout_at(text, s, fonts, hi);
+    if at_hi.is_text_overflowing || at_hi.h_overflow {
+        // When squeezing was needed, the preferred height includes the line
+        // spacing adjustment (the width does not include the character squeeze).
+        at_hi = layout_adj(text, s, fonts, hi, Adjust { width: 1.0, line_spacing: s.line_spacing_max_adj.min(0.0) });
+    }
     best.preferred_width = at_hi.preferred_width;
     best.preferred_height = at_hi.preferred_height;
     best
 }
 
 fn auto_size_search<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F) -> Layout {
-    let fits = |l: &Layout| !l.is_text_overflowing;
+    let fits = |l: &Layout| !l.is_text_overflowing && !l.h_overflow;
     let (lo, hi) = (s.font_size_min.min(s.font_size_max), s.font_size_max.max(s.font_size_min));
     let at_hi = layout_at(text, s, fonts, hi);
     if fits(&at_hi) {
         return at_hi;
     }
+    // Text that does not fit at the maximum size is squeezed by the full
+    // character-width and line-spacing adjustments while the size is searched.
+    let adj = Adjust { width: 1.0 - s.char_width_max_adj.clamp(0.0, 100.0) / 100.0, line_spacing: s.line_spacing_max_adj.min(0.0) };
     let mut a = lo;
     let mut b = hi;
-    let mut best = layout_at(text, s, fonts, lo);
+    let mut best = layout_adj(text, s, fonts, lo, adj);
     if !fits(&best) {
         return best;
     }
@@ -1442,7 +1456,7 @@ fn auto_size_search<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F) ->
             break;
         }
         let mid = ((a + b) * 0.5 * 20.0).round() / 20.0;
-        let l = layout_at(text, s, fonts, mid);
+        let l = layout_adj(text, s, fonts, mid, adj);
         if fits(&l) {
             a = mid;
             best = l;
@@ -1462,10 +1476,31 @@ fn overflows_height(s: &Settings) -> bool {
     !matches!(s.overflow, Overflow::Overflow | Overflow::ScrollRect)
 }
 
+/// Auto-size squeezing: horizontal scale of glyphs and advances, and line
+/// spacing added (in sampling-size pixels, scaled like glyphs).
+#[derive(Clone, Copy, Debug)]
+struct Adjust {
+    width: f32,
+    line_spacing: f32,
+}
+
+const NO_ADJUST: Adjust = Adjust { width: 1.0, line_spacing: 0.0 };
+
 pub fn layout_at<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size: f32) -> Layout {
+    layout_adj(text, s, fonts, size, NO_ADJUST)
+}
+
+fn layout_adj<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size: f32, adj: Adjust) -> Layout {
     let unit = if s.world_space { 0.1 } else { 1.0 };
     let parsed = parse(text, s, fonts, size);
     let mut sh = shape(&parsed, s, fonts, size);
+    if adj.width != 1.0 {
+        for e in sh.iter_mut() {
+            e.advance *= adj.width;
+            e.origin_offset *= adj.width;
+            e.xk = adj.width;
+        }
+    }
     // Characters before firstVisibleCharacter take no part in layout: TMP lays
     // out the rest from the top and reports these as empty elements.
     let skipped = (s.first_visible_character.max(0) as usize).min(sh.len());
@@ -1557,7 +1592,7 @@ pub fn layout_at<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size:
                 Some(h) => h,
                 None => -p.desc + asc + gap.max(p.gap),
             };
-            pitch += s.line_spacing * em;
+            pitch += s.line_spacing * em + adj.line_spacing * base_scale;
             if prev_ln.ends_paragraph {
                 pitch += s.paragraph_spacing * em;
             }
@@ -1683,9 +1718,8 @@ pub fn layout_at<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size:
                 }
             }
         }
-        if h_overflow.is_some() && s.auto_size {
-            is_overflowing = true;
-        }
+        // (Auto-size treats a too-long unwrapped line as not fitting, but TMP
+        // does not report it as overflowing.)
     }
     // Truncate / Ellipsis: processing stops at the overflowing element `o`, which
     // TMP keeps in the character list as an invisible zero-width element.
@@ -1834,7 +1868,14 @@ pub fn layout_at<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size:
     }
 
     // Build character infos.
-    let mut out = Layout { font_size: size, first_overflow_character_index: first_overflow, is_text_overflowing: is_overflowing, overflow_mode_page: s.overflow == Overflow::Page, ..Default::default() };
+    let mut out = Layout {
+        font_size: size,
+        first_overflow_character_index: first_overflow,
+        is_text_overflowing: is_overflowing,
+        overflow_mode_page: s.overflow == Overflow::Page,
+        h_overflow: h_overflow.is_some(),
+        ..Default::default()
+    };
     let mut chars: Vec<CharInfo> = Vec::with_capacity(sh.len() + skipped);
     for e in &skipped_elems {
         chars.push(CharInfo { character: e.info.character, index: e.info.index, string_length: e.info.string_length, ..Default::default() });
@@ -2010,8 +2051,8 @@ pub fn layout_at<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size:
             } else {
                 p
             };
-            let x0 = origin + (bx - px) * sc;
-            let x1 = origin + (bx + gw + px) * sc;
+            let x0 = origin + (bx - px) * sc * e.xk;
+            let x1 = origin + (bx + gw + px) * sc * e.xk;
             let y0 = c.base_line + (by - gh - p) * sc;
             let y1 = c.base_line + (by + p) * sc;
             // Italic: shear about half the cap height above the baseline by
