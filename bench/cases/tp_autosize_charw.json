@@ -1,0 +1,18 @@
+{
+ "font": "Inter-Regular.ttf",
+ "component": "ugui",
+ "rect": [
+  300,
+  120
+ ],
+ "text": "The quick brown fox jumps over the lazy ",
+ "props": {
+  "fontSize": 30,
+  "alignment": "TopLeft",
+  "textWrappingMode": "NoWrap",
+  "enableAutoSizing": true,
+  "fontSizeMin": 30,
+  "fontSizeMax": 72,
+  "characterWidthAdjustment": 30
+ }
+}

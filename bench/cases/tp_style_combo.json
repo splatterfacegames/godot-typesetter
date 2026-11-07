@@ -1,0 +1,15 @@
+{
+ "font": "Inter-Regular.ttf",
+ "component": "ugui",
+ "rect": [
+  500,
+  200
+ ],
+ "text": "Combined Styles Here",
+ "props": {
+  "fontSize": 30,
+  "alignment": "TopLeft",
+  "textWrappingMode": "Normal",
+  "fontStyle": "Bold, Italic, Underline, Strikethrough"
+ }
+}

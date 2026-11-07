@@ -1,0 +1,465 @@
+{
+  "faceInfo": {
+    "ascentLine": 104.4,
+    "baseline": 0,
+    "capLine": 66,
+    "descentLine": -25.92,
+    "familyName": "Noto Sans JP",
+    "lineHeight": 130.32001,
+    "meanLine": 49,
+    "pointSize": 90,
+    "scale": 1,
+    "strikethroughOffset": 19.6,
+    "strikethroughThickness": 4.5,
+    "styleName": "Thin",
+    "subscriptOffset": -25.92,
+    "subscriptSize": 0.5,
+    "superscriptOffset": 104.4,
+    "superscriptSize": 0.5,
+    "tabWidth": 20,
+    "underlineOffset": -13.5,
+    "underlineThickness": 4.5
+  },
+  "atlasWidth": 1024,
+  "atlasHeight": 1024,
+  "atlasPadding": 9,
+  "atlasRenderMode": "SDFAA",
+  "atlasCount": 1,
+  "style": {
+    "atlasHeight": 1024,
+    "atlasPadding": 9,
+    "atlasTextureCount": 1,
+    "atlasWidth": 1024,
+    "boldSpacing": 7,
+    "boldStyle": 0.75,
+    "getFontFeatures": 1,
+    "hashCode": -1183572544,
+    "instanceID": -1326,
+    "isMultiAtlasTexturesEnabled": 1,
+    "italicStyle": 35,
+    "materialHashCode": -2006316128,
+    "normalSpacingOffset": 0,
+    "normalStyle": 0,
+    "tabSize": 10
+  },
+  "glyphs": [
+    {
+      "index": 47,
+      "width": 46.89062,
+      "height": 65.96875,
+      "bearingX": 9.09375,
+      "bearingY": 65.96875,
+      "advance": 65.0625,
+      "rect": [10, 10, 47, 66],
+      "scale": 1,
+      "atlasIndex": 0
+    },
+    {
+      "index": 80,
+      "width": 45.17188,
+      "height": 51.29688,
+      "bearingX": 4.6875,
+      "bearingY": 50.125,
+      "advance": 54.54688,
+      "rect": [10, 95, 46, 53],
+      "scale": 1,
+      "atlasIndex": 0
+    },
+    {
+      "index": 85,
+      "width": 30.23438,
+      "height": 63.8125,
+      "bearingX": 2.4375,
+      "bearingY": 62.64062,
+      "advance": 33.9375,
+      "rect": [10, 167, 31, 65],
+      "scale": 1,
+      "atlasIndex": 0
+    },
+    {
+      "index": 1,
+      "width": 0,
+      "height": 0,
+      "bearingX": 0,
+      "bearingY": 0,
+      "advance": 20.15625,
+      "rect": [0, 0, 0, 0],
+      "scale": 1,
+      "atlasIndex": 0
+    },
+    {
+      "index": 686,
+      "width": 59.03125,
+      "height": 75.6875,
+      "bearingX": 15.84375,
+      "bearingY": 69.48438,
+      "advance": 90,
+      "rect": [10, 251, 60, 77],
+      "scale": 1,
+      "atlasIndex": 0
+    },
+    {
+      "index": 689,
+      "width": 84.6875,
+      "height": 82.71875,
+      "bearingX": 2.79688,
+      "bearingY": 75.51562,
+      "advance": 90,
+      "rect": [75, 95, 86, 84],
+      "scale": 1,
+      "atlasIndex": 0
+    },
+    {
+      "index": 709,
+      "width": 83.34375,
+      "height": 79.65625,
+      "bearingX": 3.42188,
+      "bearingY": 72.45312,
+      "advance": 90,
+      "rect": [10, 347, 84, 81],
+      "scale": 1,
+      "atlasIndex": 0
+    },
+    {
+      "index": 70,
+      "width": 41.39062,
+      "height": 51.29688,
+      "bearingX": 4.6875,
+      "bearingY": 50.125,
+      "advance": 49.85938,
+      "rect": [76, 10, 43, 53],
+      "scale": 1,
+      "atlasIndex": 0
+    },
+    {
+      "index": 89,
+      "width": 42.125,
+      "height": 48.875,
+      "bearingX": 1.34375,
+      "bearingY": 48.875,
+      "advance": 44.8125,
+      "rect": [138, 10, 43, 49],
+      "scale": 1,
+      "atlasIndex": 0
+    },
+    {
+      "index": 66,
+      "width": 38.15625,
+      "height": 51.29688,
+      "bearingX": 5.3125,
+      "bearingY": 50.125,
+      "advance": 50.67188,
+      "rect": [89, 198, 39, 53],
+      "scale": 1,
+      "atlasIndex": 0
+    },
+    {
+      "index": 72,
+      "width": 44.90625,
+      "height": 72.625,
+      "bearingX": 4.59375,
+      "bearingY": 50.125,
+      "advance": 50.76562,
+      "rect": [10, 447, 46, 74],
+      "scale": 1,
+      "atlasIndex": 0
+    },
+    {
+      "index": 74,
+      "width": 10.89062,
+      "height": 69.75,
+      "bearingX": 7.01562,
+      "bearingY": 69.75,
+      "advance": 24.75,
+      "rect": [10, 540, 11, 70],
+      "scale": 1,
+      "atlasIndex": 0
+    },
+    {
+      "index": 79,
+      "width": 39.0625,
+      "height": 50.125,
+      "bearingX": 8.28125,
+      "bearingY": 50.125,
+      "advance": 54.90625,
+      "rect": [89, 270, 40, 51],
+      "scale": 1,
+      "atlasIndex": 0
+    },
+    {
+      "index": 220,
+      "width": 73.79688,
+      "height": 67.42188,
+      "bearingX": 7.92188,
+      "bearingY": 64.625,
+      "advance": 90,
+      "rect": [10, 629, 75, 68],
+      "scale": 1,
+      "atlasIndex": 0
+    },
+    {
+      "index": 321,
+      "width": 64.4375,
+      "height": 65.4375,
+      "bearingX": 13.04688,
+      "bearingY": 63.45312,
+      "advance": 90,
+      "rect": [40, 540, 65, 66],
+      "scale": 1,
+      "atlasIndex": 0
+    },
+    {
+      "index": 277,
+      "width": 61.75,
+      "height": 60.65625,
+      "bearingX": 15.65625,
+      "bearingY": 55.07812,
+      "advance": 90,
+      "rect": [75, 447, 63, 62],
+      "scale": 1,
+      "atlasIndex": 0
+    },
+    {
+      "index": 360,
+      "width": 71.54688,
+      "height": 8.8125,
+      "bearingX": 9.1875,
+      "bearingY": 38.96875,
+      "advance": 90,
+      "rect": [147, 198, 72, 9],
+      "scale": 1,
+      "atlasIndex": 0
+    },
+    {
+      "index": 343,
+      "width": 79.75,
+      "height": 69.75,
+      "bearingX": 5.9375,
+      "bearingY": 67.5,
+      "advance": 90,
+      "rect": [113, 340, 81, 71],
+      "scale": 1,
+      "atlasIndex": 0
+    },
+    {
+      "index": 316,
+      "width": 80.54688,
+      "height": 74.32812,
+      "bearingX": 5.76562,
+      "bearingY": 73.70312,
+      "advance": 90,
+      "rect": [148, 226, 82, 75],
+      "scale": 1,
+      "atlasIndex": 0
+    },
+    {
+      "index": 303,
+      "width": 60.10938,
+      "height": 58.59375,
+      "bearingX": 15.9375,
+      "bearingY": 51.84375,
+      "advance": 90,
+      "rect": [180, 78, 62, 59],
+      "scale": 1,
+      "atlasIndex": 0
+    },
+    {
+      "index": 283,
+      "width": 69.57812,
+      "height": 76.57812,
+      "bearingX": 8.90625,
+      "bearingY": 72.625,
+      "advance": 90,
+      "rect": [10, 716, 71, 77],
+      "scale": 1,
+      "atlasIndex": 0
+    },
+    {
+      "index": 685,
+      "width": 83.32812,
+      "height": 82.89062,
+      "bearingX": 3.51562,
+      "bearingY": 75.59375,
+      "advance": 90,
+      "rect": [10, 812, 84, 84],
+      "scale": 1,
+      "atlasIndex": 0
+    },
+    {
+      "index": 677,
+      "width": 77.48438,
+      "height": 82.79688,
+      "bearingX": 6.39062,
+      "bearingY": 75.78125,
+      "advance": 90,
+      "rect": [10, 915, 78, 84],
+      "scale": 1,
+      "atlasIndex": 0
+    },
+    {
+      "index": 112,
+      "width": 26,
+      "height": 25.20312,
+      "bearingX": 4.6875,
+      "bearingY": 20.15625,
+      "advance": 90,
+      "rect": [200, 10, 27, 27],
+      "scale": 1,
+      "atlasIndex": 0
+    },
+    {
+      "index": 692,
+      "width": 83.42188,
+      "height": 80.82812,
+      "bearingX": 3.42188,
+      "bearingY": 74.79688,
+      "advance": 90,
+      "rect": [107, 915, 84, 82],
+      "scale": 1,
+      "atlasIndex": 0
+    },
+    {
+      "index": 675,
+      "width": 81.09375,
+      "height": 82.4375,
+      "bearingX": 3.42188,
+      "bearingY": 75.59375,
+      "advance": 90,
+      "rect": [104, 625, 82, 83],
+      "scale": 1,
+      "atlasIndex": 0
+    },
+    {
+      "index": 113,
+      "width": 27.45312,
+      "height": 27.4375,
+      "bearingX": 3.78125,
+      "bearingY": 21.95312,
+      "advance": 90,
+      "rect": [246, 10, 29, 28],
+      "scale": 1,
+      "atlasIndex": 0
+    }
+  ],
+  "characters": [
+    [78, 47],
+    [111, 80],
+    [116, 85],
+    [32, 1],
+    [26085, 686],
+    [26412, 689],
+    [35486, 709],
+    [101, 70],
+    [120, 89],
+    [97, 66],
+    [103, 72],
+    [105, 74],
+    [110, 79],
+    [12398, 220],
+    [12501, 321],
+    [12457, 277],
+    [12540, 360],
+    [12523, 343],
+    [12496, 316],
+    [12483, 303],
+    [12463, 283],
+    [25991, 685],
+    [23383, 677],
+    [12289, 112],
+    [28151, 692],
+    [22312, 675],
+    [12290, 113]
+  ],
+  "fontFeatureTable": {
+    "m_MultipleSubstitutionRecords": [],
+    "m_LigatureSubstitutionRecords": [
+      {
+        "m_ComponentGlyphIDs": [80, 55],
+        "m_LigatureGlyphID": 537
+      },
+      {
+        "m_ComponentGlyphIDs": [70, 83, 72],
+        "m_LigatureGlyphID": 418
+      },
+      {
+        "m_ComponentGlyphIDs": [70, 55],
+        "m_LigatureGlyphID": 419
+      },
+      {
+        "m_ComponentGlyphIDs": [66, 15, 78, 15],
+        "m_LigatureGlyphID": 596
+      },
+      {
+        "m_ComponentGlyphIDs": [72, 66, 77],
+        "m_LigatureGlyphID": 657
+      },
+      {
+        "m_ComponentGlyphIDs": [74, 79],
+        "m_LigatureGlyphID": 606
+      },
+      {
+        "m_ComponentGlyphIDs": [79, 34],
+        "m_LigatureGlyphID": 544
+      },
+      {
+        "m_ComponentGlyphIDs": [79, 39],
+        "m_LigatureGlyphID": 553
+      },
+      {
+        "m_ComponentGlyphIDs": [79, 55],
+        "m_LigatureGlyphID": 587
+      },
+      {
+        "m_ComponentGlyphIDs": [79, 56],
+        "m_LigatureGlyphID": 592
+      },
+      {
+        "m_ComponentGlyphIDs": [79, 78],
+        "m_LigatureGlyphID": 562
+      },
+      {
+        "m_ComponentGlyphIDs": [79, 84],
+        "m_LigatureGlyphID": 584
+      }
+    ],
+    "m_GlyphPairAdjustmentRecords": [],
+    "m_MarkToBaseAdjustmentRecords": [],
+    "m_MarkToMarkAdjustmentRecords": []
+  },
+  "materialProperties": {
+    "ID_MainTex": 0,
+    "ID_FaceColor": 0,
+    "ID_FaceDilate": 0,
+    "ID_UnderlayColor": 0,
+    "ID_UnderlayOffsetX": 0,
+    "ID_UnderlayOffsetY": 0,
+    "ID_UnderlayDilate": 0,
+    "ID_UnderlaySoftness": 0,
+    "ID_WeightNormal": 0,
+    "ID_WeightBold": 0.75,
+    "ID_OutlineWidth": 0,
+    "ID_OutlineSoftness": 0,
+    "ID_OutlineColor": 0,
+    "ID_GradientScale": 10,
+    "ID_ScaleX": 1,
+    "ID_ScaleY": 1,
+    "ID_PerspectiveFilter": 0.875,
+    "ID_Sharpness": 0,
+    "ID_TextureWidth": 1024,
+    "ID_TextureHeight": 1024,
+    "ID_ClipRect": 0,
+    "ID_MaskSoftnessX": 0,
+    "ID_MaskSoftnessY": 0,
+    "ID_VertexOffsetX": 0,
+    "ID_VertexOffsetY": 0,
+    "ID_StencilID": 0,
+    "ID_StencilOp": 0,
+    "ID_StencilComp": 8,
+    "ID_StencilReadMask": 255,
+    "ID_StencilWriteMask": 255,
+    "ID_ShaderFlags": 0,
+    "ID_ScaleRatio_A": 0.9,
+    "ID_ScaleRatio_B": 1,
+    "ID_ScaleRatio_C": 0.73125
+  }
+}

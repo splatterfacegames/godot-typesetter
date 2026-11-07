@@ -1,0 +1,14 @@
+{
+ "font": "Inter-Regular.ttf",
+ "component": "ugui",
+ "rect": [
+  600,
+  300
+ ],
+ "text": "<mspace=20>Monospace 1.5</mspace> <mspace=0.8em>Em mono</mspace> back <mspace=2.5em>W i</mspace>",
+ "props": {
+  "fontSize": 30,
+  "alignment": "TopLeft",
+  "textWrappingMode": "Normal"
+ }
+}

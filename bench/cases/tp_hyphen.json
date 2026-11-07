@@ -1,0 +1,14 @@
+{
+ "font": "Inter-Regular.ttf",
+ "component": "ugui",
+ "rect": [
+  200,
+  400
+ ],
+ "text": "well-known state-of-the-art hyphen-separated words and en‐dash",
+ "props": {
+  "fontSize": 24,
+  "alignment": "TopLeft",
+  "textWrappingMode": "Normal"
+ }
+}

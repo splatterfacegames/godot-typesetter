@@ -1,0 +1,14 @@
+{
+ "font": "Inter-Regular.ttf",
+ "component": "ugui",
+ "rect": [
+  600,
+  300
+ ],
+ "text": "<color=#F00>R3</color> <color=#0F08>G4</color> <color=#0000FF>B6</color> <color=#FFFF0080>Y8</color> <color=red>red</color> <color=\"blue\">blue</color> <#00FFFF>cyan</color> <#F0F>mag</color> <color=orange>o</color><color=purple>p</color><color=black>k</color><color=white>w</color><color=green>g</color><color=yellow>y</color> <color=#12345>bad</color> <color=#ABCDEF12>a</color>",
+ "props": {
+  "fontSize": 30,
+  "alignment": "TopLeft",
+  "textWrappingMode": "Normal"
+ }
+}

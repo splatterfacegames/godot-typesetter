@@ -1,0 +1,14 @@
+{
+ "font": "Inter-Regular.ttf",
+ "component": "ugui",
+ "rect": [
+  250,
+  300
+ ],
+ "text": "Long<zwsp>Compound<zwsp>Word<zwsp>Joined<zwsp>Together forever",
+ "props": {
+  "fontSize": 30,
+  "alignment": "TopLeft",
+  "textWrappingMode": "Normal"
+ }
+}

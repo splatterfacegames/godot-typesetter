@@ -24,19 +24,28 @@ REPO = os.path.dirname(os.path.dirname(HERE))
 DEFAULT_UNITY = r"C:/Program Files/Unity/Hub/Editor/6000.3.24f1/Editor/Unity.exe"
 
 
-def unity(exe, method, extra, log, render, timeout, quit=True):
+def unity(exe, method, extra, log, render, timeout, quit=True, attempts=5):
     cmd = [exe, "-batchmode", "-projectPath", HERE, "-executeMethod", method, "-logFile", log]
     if not render:
         cmd.append("-nographics")
     cmd += extra + (["-quit"] if quit else [])
     print(" ".join(cmd))
-    p = subprocess.Popen(cmd)
-    try:
-        return p.wait(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        print("Unity timed out; terminating PID %d" % p.pid)
-        p.kill()
-        return -1
+    for attempt in range(attempts):
+        p = subprocess.Popen(cmd)
+        try:
+            rc = p.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            print("Unity timed out; terminating PID %d" % p.pid)
+            p.kill()
+            return -1
+        # On a loaded machine the editor sometimes gives up waiting for its
+        # package-manager server before running anything; just retry.
+        text = open(log, encoding="utf-8", errors="replace").read() if os.path.exists(log) else ""
+        if rc != 0 and "Unity Package Manager local server" in text and attempt + 1 < attempts:
+            print("package manager did not start; retrying (%d)" % (attempt + 2))
+            continue
+        return rc
+    return rc
 
 
 def main():
@@ -46,6 +55,7 @@ def main():
     ap.add_argument("--out", default=os.path.join(REPO, "bench", "unity"))
     ap.add_argument("--only", default="")
     ap.add_argument("--render", action="store_true")
+    ap.add_argument("--probe", action="store_true", help="also write _api.json (public TMP API listing)")
     ap.add_argument("--timeout", type=int, default=1800)
     a = ap.parse_args()
 
@@ -77,6 +87,8 @@ def main():
         extra += ["-only", a.only]
     if a.render:
         extra.append("-render")
+    if a.probe:
+        extra.append("-probe")
     rc = unity(a.unity, "TypesetterDump.Run", extra, os.path.join(logs, "run.log"), a.render, a.timeout)
     log = open(os.path.join(logs, "run.log"), encoding="utf-8", errors="replace").read()
     for line in log.splitlines():

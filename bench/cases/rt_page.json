@@ -1,0 +1,16 @@
+{
+ "font": "Inter-Regular.ttf",
+ "component": "ugui",
+ "rect": [
+  400,
+  200
+ ],
+ "text": "Page one text here<page>Page two text<page>Three",
+ "props": {
+  "fontSize": 30,
+  "alignment": "TopLeft",
+  "textWrappingMode": "Normal",
+  "overflowMode": "Page",
+  "pageToDisplay": 2
+ }
+}

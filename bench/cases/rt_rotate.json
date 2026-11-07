@@ -1,0 +1,14 @@
+{
+ "font": "Inter-Regular.ttf",
+ "component": "ugui",
+ "rect": [
+  600,
+  300
+ ],
+ "text": "<rotate=45>Rot</rotate> <rotate=-30>neg</rotate> x <rotate=90>V</rotate>",
+ "props": {
+  "fontSize": 30,
+  "alignment": "TopLeft",
+  "textWrappingMode": "Normal"
+ }
+}

@@ -1,0 +1,95 @@
+{
+ "font": "Inter-Regular.ttf",
+ "component": "ugui",
+ "rect": [
+  700,
+  200
+ ],
+ "text": "Icons <sprite=0> <size=60><sprite=1></size> text",
+ "props": {
+  "fontSize": 30,
+  "alignment": "TopLeft",
+  "textWrappingMode": "Normal"
+ },
+ "spriteAsset": {
+  "name": "TypesetterSprites",
+  "width": 256,
+  "height": 64,
+  "sprites": [
+   {
+    "name": "circle",
+    "rect": [
+     0,
+     0,
+     64,
+     64
+    ],
+    "metrics": [
+     64,
+     64,
+     0,
+     52,
+     64
+    ]
+   },
+   {
+    "name": "square",
+    "rect": [
+     64,
+     0,
+     64,
+     64
+    ],
+    "metrics": [
+     64,
+     64,
+     0,
+     52,
+     64
+    ]
+   },
+   {
+    "name": "star",
+    "rect": [
+     128,
+     0,
+     64,
+     64
+    ],
+    "metrics": [
+     64,
+     64,
+     4,
+     56,
+     72
+    ],
+    "scale": 1.5
+   },
+   {
+    "name": "heart",
+    "unicode": 9829,
+    "rect": [
+     192,
+     0,
+     64,
+     64
+    ],
+    "metrics": [
+     64,
+     64,
+     0,
+     52,
+     64
+    ]
+   }
+  ],
+  "faceInfo": {
+   "pointSize": 64,
+   "scale": 1,
+   "ascentLine": 56,
+   "descentLine": -8,
+   "lineHeight": 64,
+   "baseline": 0
+  }
+ }
+}

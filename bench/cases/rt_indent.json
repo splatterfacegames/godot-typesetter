@@ -1,0 +1,14 @@
+{
+ "font": "Inter-Regular.ttf",
+ "component": "ugui",
+ "rect": [
+  500,
+  400
+ ],
+ "text": "<indent=15%>Indented paragraph that wraps across several lines to show the hanging.</indent> Back to normal\nNext <indent=40>px indent here and it wraps around too</indent> x <indent=1em>em</indent>",
+ "props": {
+  "fontSize": 30,
+  "alignment": "TopLeft",
+  "textWrappingMode": "Normal"
+ }
+}

@@ -1,0 +1,14 @@
+{
+ "font": "NotoSansJP-Subset.ttf",
+ "component": "ugui",
+ "rect": [
+  250,
+  400
+ ],
+ "text": "「こんにちは」と彼は言った。（括弧）や『二重』、そして…！？ーーー終わり。ッァィゥェォャュョ「始まり」",
+ "props": {
+  "fontSize": 24,
+  "alignment": "TopLeft",
+  "textWrappingMode": "Normal"
+ }
+}

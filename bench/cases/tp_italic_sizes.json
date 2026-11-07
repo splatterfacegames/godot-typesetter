@@ -1,0 +1,14 @@
+{
+ "font": "Inter-Regular.ttf",
+ "component": "ugui",
+ "rect": [
+  500,
+  200
+ ],
+ "text": "<i>Ab<size=60>Cd</size><sup>e</sup><voffset=10>f</voffset></i>",
+ "props": {
+  "fontSize": 30,
+  "alignment": "TopLeft",
+  "textWrappingMode": "Normal"
+ }
+}

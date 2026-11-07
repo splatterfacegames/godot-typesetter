@@ -1,0 +1,14 @@
+{
+ "font": "Inter-Regular.ttf",
+ "component": "ugui",
+ "rect": [
+  600,
+  300
+ ],
+ "text": "H<sub>2</sub>O E=mc<sup>2</sup> x<sup>a<sup>b</sup></sup> y<sub>i<sub>j</sub></sub> <size=50>S<sup>p</sup></size>",
+ "props": {
+  "fontSize": 30,
+  "alignment": "TopLeft",
+  "textWrappingMode": "Normal"
+ }
+}

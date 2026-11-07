@@ -1,0 +1,22 @@
+{
+ "font": "Inter-Regular.ttf",
+ "component": "ugui",
+ "rect": [
+  300,
+  300
+ ],
+ "text": "Inter text with 日本語のフォールバック文字、混在。",
+ "props": {
+  "fontSize": 24,
+  "alignment": "TopLeft",
+  "textWrappingMode": "Normal"
+ },
+ "fonts": {
+  "NotoJP": {
+   "font": "NotoSansJP-Subset.ttf"
+  }
+ },
+ "fallbacks": [
+  "NotoJP"
+ ]
+}

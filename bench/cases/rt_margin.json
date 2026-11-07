@@ -1,0 +1,14 @@
+{
+ "font": "Inter-Regular.ttf",
+ "component": "ugui",
+ "rect": [
+  450,
+  500
+ ],
+ "text": "<margin=2em>Both margins of this wrapped text are set</margin>\n<margin-left=20%>Left margin text that wraps here</margin-left>\n<margin-right=100>Right margin text also wraps around</margin-right>\nplain line",
+ "props": {
+  "fontSize": 30,
+  "alignment": "TopLeft",
+  "textWrappingMode": "Normal"
+ }
+}

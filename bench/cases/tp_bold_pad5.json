@@ -1,0 +1,23 @@
+{
+ "font": "Inter-Regular.ttf",
+ "component": "ugui",
+ "rect": [
+  400,
+  100
+ ],
+ "text": "<b>Bold</b> x <b>W</b>",
+ "props": {
+  "fontSize": 48,
+  "alignment": "TopLeft",
+  "textWrappingMode": "NoWrap"
+ },
+ "asset": {
+  "pointSize": 48,
+  "padding": 5,
+  "renderMode": "SDFAA",
+  "atlas": [
+   512,
+   512
+  ]
+ }
+}

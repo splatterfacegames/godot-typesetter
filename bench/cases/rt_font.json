@@ -1,0 +1,19 @@
+{
+ "font": "Inter-Regular.ttf",
+ "component": "ugui",
+ "rect": [
+  600,
+  300
+ ],
+ "text": "Inter <font=\"NotoJP\">Noto 日本語 text</font> Inter <font=NotoJP>again</font> <font=\"Nope\">unknown</font> end",
+ "props": {
+  "fontSize": 30,
+  "alignment": "TopLeft",
+  "textWrappingMode": "Normal"
+ },
+ "fonts": {
+  "NotoJP": {
+   "font": "NotoSansJP-Subset.ttf"
+  }
+ }
+}

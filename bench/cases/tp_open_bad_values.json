@@ -1,0 +1,14 @@
+{
+ "font": "Inter-Regular.ttf",
+ "component": "ugui",
+ "rect": [
+  900,
+  400
+ ],
+ "text": "<size=abc>|<cspace=x>|<pos=a>|<voffset>|<align=foo>|<rotate=x>|<font-weight=abc>|<width>|<indent>|<mspace>|<line-height>|<line-indent=q>|<margin>|<mark=zz>|<alpha=#GG>|<alpha=80>|<sprite>|<space>|<link>|<a>|<font>|<style>|<gradient>|<u=1>|<i=2>|<page=3>|<br=1>|<nobr=no>|<size=>|<size=10px>|<size=1.5em>|<color=#1234567>|<color=#FFF5>|<color=redd>|<pos=10px>|<cspace=2px>|<B>|<COLOR=red>|<Size=40>|<sup=1>|end",
+ "props": {
+  "fontSize": 16,
+  "alignment": "TopLeft",
+  "textWrappingMode": "Normal"
+ }
+}

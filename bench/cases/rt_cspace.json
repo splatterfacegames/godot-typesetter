@@ -1,0 +1,14 @@
+{
+ "font": "Inter-Regular.ttf",
+ "component": "ugui",
+ "rect": [
+  600,
+  300
+ ],
+ "text": "<cspace=10>Spaced</cspace> <cspace=1em>em</cspace> <cspace=-5>tight</cspace> normal <cspace=0.5em>wrap this long spaced run</cspace>",
+ "props": {
+  "fontSize": 30,
+  "alignment": "TopLeft",
+  "textWrappingMode": "Normal"
+ }
+}

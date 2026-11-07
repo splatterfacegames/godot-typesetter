@@ -1,0 +1,15 @@
+{
+ "font": "Inter-Regular.ttf",
+ "component": "ugui",
+ "rect": [
+  200,
+  300
+ ],
+ "text": "Hello world right to left text that wraps",
+ "props": {
+  "fontSize": 24,
+  "alignment": "TopLeft",
+  "textWrappingMode": "Normal",
+  "isRightToLeftText": true
+ }
+}

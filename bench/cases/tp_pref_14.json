@@ -1,0 +1,14 @@
+{
+ "font": "Inter-Regular.ttf",
+ "component": "ugui",
+ "rect": [
+  900,
+  100
+ ],
+ "text": "a<sup=1>xa",
+ "props": {
+  "fontSize": 20,
+  "alignment": "TopLeft",
+  "textWrappingMode": "NoWrap"
+ }
+}

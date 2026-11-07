@@ -1,0 +1,15 @@
+{
+ "font": "Inter-Regular.ttf",
+ "component": "ugui",
+ "rect": [
+  500,
+  200
+ ],
+ "text": "Literal \\n and \\t here",
+ "props": {
+  "fontSize": 30,
+  "alignment": "TopLeft",
+  "textWrappingMode": "Normal",
+  "parseCtrlCharacters": false
+ }
+}

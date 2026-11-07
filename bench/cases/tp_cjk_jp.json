@@ -1,0 +1,14 @@
+{
+ "font": "NotoSansJP-Subset.ttf",
+ "component": "ugui",
+ "rect": [
+  300,
+  400
+ ],
+ "text": "吾輩は猫である。名前はまだ無い。どこで生れたかとんと見当がつかぬ。何でも薄暗いじめじめした所でニャーニャー泣いていた事だけは記憶している。",
+ "props": {
+  "fontSize": 24,
+  "alignment": "TopLeft",
+  "textWrappingMode": "Normal"
+ }
+}
