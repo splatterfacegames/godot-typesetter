@@ -845,7 +845,12 @@ impl<'a> ParseState<'a> {
             "lowercase" => self.st.style |= style::LOWERCASE,
             "smallcaps" => self.st.style |= style::SMALLCAPS,
             "nobr" => self.st.nobr = true,
-            "page" => self.pending.push(Cmd::PageBreak),
+            // <page> only acts in Page overflow mode (elsewhere it is consumed).
+            "page" => {
+                if self.s.overflow == Overflow::Page {
+                    self.pending.push(Cmd::PageBreak)
+                }
+            }
             "gradient" => {
                 let Some(g) = fonts.gradient(&v) else { return false };
                 self.st.gradient = Some(g);
@@ -1291,8 +1296,11 @@ fn break_lines(sh: &mut [Shaped], s: &Settings, avail: f32) -> (Vec<LineSpan>, V
                 sh[i].advance = nx - x;
             }
             let e = &sh[i];
-            let width_here = avail - e.margin_l - e.margin_r;
-            let fits = x + (e.advance - e.char_spacing) <= width_here + 1e-3 || !e.info.is_visible;
+            let width_here = e.width_limit.unwrap_or(avail).min(avail) - e.margin_l - e.margin_r;
+            // Justified and flush lines may run 5% over before wrapping (they
+            // are then compressed).
+            let tolerance = if matches!(e.halign.unwrap_or(s.halign), HAlign::Justified | HAlign::Flush) { 1.05 } else { 1.0 };
+            let fits = x + (e.advance - e.char_spacing) <= width_here * tolerance + 1e-3 || !e.info.is_visible;
             if wrap && !fits && i > start && !e.info.is_newline {
                 // Break at the last opportunity, or mid-word if there is none.
                 let at = match last_break {
@@ -1488,10 +1496,25 @@ pub fn layout_at<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size:
     }
 
     // Preferred values come from the complete text, before overflow handling.
-    let pref_h_full = match (vl.first(), vl.last()) {
+    let mut pref_h_full = match (vl.first(), vl.last()) {
         (Some(f), Some(l)) => (f.baseline + f.asc) - (l.baseline + l.desc) + mt + mb,
         _ => 0.0,
     };
+    if lines.iter().any(|l| l.page_break_after) {
+        // Explicit <page> breaks restart at the top: the preferred height is
+        // the tallest run of lines between them.
+        let mut best = 0.0f32;
+        let mut i = 0;
+        while i < vl.len() {
+            let mut j = i;
+            while j + 1 < vl.len() && !lines[j].page_break_after {
+                j += 1;
+            }
+            best = best.max((vl[i].baseline + vl[i].asc) - (vl[j].baseline + vl[j].desc));
+            i = j + 1;
+        }
+        pref_h_full = best + mt + mb;
+    }
     // Preferred width: the widest line when only line feeds break lines
     // (indents, <pos>, <space>, tabs and tag margins included).
     let pref_w_full = {
@@ -1744,10 +1767,14 @@ pub fn layout_at<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size:
     let mut shift_last = vec![0.0f32; lines.len()];
     for (li, ln) in lines.iter().enumerate() {
         let v = &vl[li];
-        let halign = sh.get(ln.start).and_then(|e| e.halign).unwrap_or(s.halign);
-        let ml_ = sh.get(ln.start).map(|e| e.margin_l).unwrap_or(0.0);
-        let mr_ = sh.get(ln.start).map(|e| e.margin_r).unwrap_or(0.0);
-        let line_w = avail_w - ml_ - mr_;
+        // Line-level properties (alignment, margins, width) follow the style in
+        // effect at the line's last visible character.
+        let sref = (ln.start..ln.end).rev().find(|&i| sh[i].info.is_visible).or(if ln.end > ln.start { Some(ln.end - 1) } else { None });
+        let se = sref.map(|i| &sh[i]);
+        let halign = se.and_then(|e| e.halign).unwrap_or(s.halign);
+        let ml_ = se.map(|e| e.margin_l).unwrap_or(0.0);
+        let mr_ = se.map(|e| e.margin_r).unwrap_or(0.0);
+        let line_w = se.and_then(|e| e.width_limit).unwrap_or(avail_w).min(avail_w) - ml_ - mr_;
         let content_end = trailing_visible_end(&sh, ln, &xs);
         let content_start = if ln.end > ln.start { xs[ln.start] } else { 0.0 };
         let used = content_end;
@@ -1759,7 +1786,9 @@ pub fn layout_at<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size:
             HAlign::Center => (line_w - used) * 0.5,
             HAlign::Right => line_w - used,
             HAlign::Justified | HAlign::Flush => {
-                if halign == HAlign::Justified && is_last_of_para {
+                // A paragraph's last line is not justified unless it overran
+                // the width (within the wrap tolerance): then it is compressed.
+                if halign == HAlign::Justified && is_last_of_para && used <= line_w {
                     0.0
                 } else {
                     // Extra width is split by word_wrapping_ratios: a share shifts every
@@ -1770,7 +1799,8 @@ pub fn layout_at<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size:
                         None => 0,
                     };
                     let vis = (ln.start..ln.end).filter(|&i| !sh[i].info.is_space && !sh[i].info.is_newline).count();
-                    let extra = (line_w - used).max(0.0);
+                    // Negative when a line ran into the 5% wrap tolerance.
+                    let extra = line_w - used;
                     let r = s.word_wrapping_ratios.clamp(0.0, 1.0);
                     if spaces > 0 && vis > 1 {
                         justify_extra_char = extra * r / (vis - 1) as f32;
@@ -1862,13 +1892,13 @@ pub fn layout_at<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size:
             c.base_line = v.baseline + c.voffset;
             c.ascender = v.baseline + c.elem_ascender + c.voffset;
             c.descender = v.baseline + c.elem_descender + c.voffset;
-            run_asc = run_asc.max(c.ascender);
-            run_desc = run_desc.min(c.descender);
-            if is_whitespace(c.character) {
-                // White space reports the line's extremes so far.
+            if is_whitespace(c.character) && run_asc.is_finite() {
+                // White space reports the line's extremes so far (before it).
                 c.ascender = run_asc;
                 c.descender = run_desc;
             }
+            run_asc = run_asc.max(c.ascender);
+            run_desc = run_desc.min(c.descender);
             if c.no_word {
                 // Overflow placeholders (ellipsis slot, cut point) sit on the baseline.
                 c.ascender = c.base_line;
@@ -1992,6 +2022,55 @@ pub fn layout_at<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size:
         out.lines.push(info);
     }
     let _ = word_count_total;
+    // Page mode: the part of a line after <page> continues the same line entry
+    // (positioned at the top of the new page); the entry reports the last part's
+    // vertical metrics and right edge.
+    if lines.iter().any(|l| l.page_break_after) && out.lines.len() == lines.len() {
+        let mut map = vec![0usize; out.lines.len()];
+        let mut merged: Vec<LineInfo> = Vec::new();
+        let (mut sf, mut sl) = (Vec::new(), Vec::new());
+        for (li, info) in std::mem::take(&mut out.lines).into_iter().enumerate() {
+            if li > 0 && lines[li - 1].page_break_after && !merged.is_empty() {
+                let m = merged.last_mut().unwrap();
+                m.last_character_index = info.last_character_index;
+                if info.visible_character_count > 0 {
+                    if m.visible_character_count == 0 {
+                        m.first_visible_character_index = info.first_visible_character_index;
+                    }
+                    m.last_visible_character_index = info.last_visible_character_index;
+                }
+                m.character_count += info.character_count;
+                m.visible_character_count += info.visible_character_count;
+                m.space_count += info.space_count;
+                m.visible_space_count += info.visible_space_count;
+                m.word_count += info.word_count;
+                m.ascender = info.ascender;
+                m.baseline = info.baseline;
+                m.descender = info.descender;
+                m.line_height = info.line_height;
+                m.length = info.length;
+                m.max_advance = info.max_advance;
+                m.width = info.width;
+                m.margin_left = info.margin_left;
+                m.margin_right = info.margin_right;
+                m.alignment = info.alignment;
+                m.extents_max = info.extents_max;
+                m.extents_min.y = info.extents_min.y;
+                *sl.last_mut().unwrap() = shift_last[li];
+            } else {
+                merged.push(info);
+                sf.push(shift_first[li]);
+                sl.push(shift_last[li]);
+            }
+            map[li] = merged.len() - 1;
+        }
+        for c in chars.iter_mut() {
+            c.line_number = map[c.line_number.max(0) as usize] as i32;
+        }
+        out.lines = merged;
+        shift_first = sf;
+        shift_last = sl;
+    }
     // Words: maximal runs of word characters over the whole text (a word may
     // span lines).
     {

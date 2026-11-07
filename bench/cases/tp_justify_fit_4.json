@@ -1,0 +1,14 @@
+{
+ "font": "Inter-Regular.ttf",
+ "component": "ugui",
+ "rect": [
+  401.76,
+  300
+ ],
+ "text": "Justified text that wraps onto the next line",
+ "props": {
+  "fontSize": 30,
+  "alignment": "TopJustified",
+  "textWrappingMode": "Normal"
+ }
+}

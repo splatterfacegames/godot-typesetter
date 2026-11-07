@@ -218,6 +218,13 @@ OPEN_BAD = ["size=abc", "cspace=x", "pos=a", "voffset", "align=foo", "rotate=x",
 tp("open_bad_values", "|".join("<%s>" % t for t in OPEN_BAD) + "|end", {"fontSize": 16}, rect=(900, 400))
 tp("tags_spacing", "<b >a</b > < b>c</ b> <size = 40>d</size> <color='red'>e</color> <size=\"40\">f</size> <color=#F00 >g</color>", {"fontSize": 24}, rect=(700, 200))
 
+for pct in (1, 4, 49, 51, 6):
+    w = 417.83 / (1 + (pct / 1000 if pct > 9 else pct / 100))
+    tp("justify_fit_%d" % pct, "Justified text that wraps onto the next line", {"alignment": "TopJustified"}, rect=(round(w, 2), 300))
+tp("justify_fit_left", "Justified text that wraps onto the next line", {"alignment": "TopLeft"}, rect=(410, 300))
+rt("page_multiline", "Line one of page one\nline two<page>Page two first\nsecond<page>Three", {"overflowMode": "Page", "pageToDisplay": 2}, rect=(400, 200))
+rt("page_overflow_mode", "Page one text<page>Page two text<page>Three", {}, rect=(400, 200))
+
 # --- atlas generation per render mode (ASCII, static set)
 for mode in ("SDF", "SDFAA", "SDFAA_HINTED", "SDF8", "SDF16", "SDF32", "SMOOTH", "SMOOTH_HINTED", "RASTER", "RASTER_HINTED"):
     case("atlas_" + mode.lower(), "AVg@", {"fontSize": 48, "textWrappingMode": "NoWrap"}, rect=(400, 100),
