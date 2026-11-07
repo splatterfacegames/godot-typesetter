@@ -319,6 +319,11 @@ pub struct CharInfo {
     pub no_word: bool,
     /// The zero-width element after an ellipsis.
     pub ellipsis_tail: bool,
+    /// Ascender and descender are reported at the baseline.
+    pub baseline_metrics: bool,
+    /// TMP reports this element's xAdvance relative to the line's left edge
+    /// (the character before a `</cspace>`).
+    pub xadv_from_line_left: bool,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -468,6 +473,8 @@ struct Elem {
     src: usize,
     /// Source chars this element stands for (TMP stringLength).
     len: usize,
+    /// A `</cspace>` follows this element.
+    close_cspace: bool,
     style: StyleState,
     cmd_before: Vec<Cmd>,
     sprite: Option<SpriteInfo>,
@@ -545,7 +552,7 @@ pub fn tag_hash(s: &str) -> i32 {
 
 impl<'a> ParseState<'a> {
     fn push_char(&mut self, cp: u32, index: usize, len: usize) {
-        self.elems.push(Elem { cp, src: index, len, style: self.st.clone(), cmd_before: std::mem::take(&mut self.pending), sprite: None });
+        self.elems.push(Elem { cp, src: index, len, style: self.st.clone(), cmd_before: std::mem::take(&mut self.pending), sprite: None, close_cspace: false });
     }
 
     /// Emits the source text of `span` as literal characters.
@@ -648,7 +655,17 @@ impl<'a> ParseState<'a> {
                         self.st.sup_sub_offset = 0.0;
                     }
                 }
-                "cspace" => self.st.cspace = 0.0,
+                "cspace" => {
+                    // Closing <cspace> takes the spacing back from the last
+                    // character (and TMP then reports that character's
+                    // xAdvance relative to the line's left edge).
+                    if self.st.cspace != 0.0 {
+                        if let Some(e) = self.elems.last_mut() {
+                            e.close_cspace = true;
+                        }
+                    }
+                    self.st.cspace = 0.0
+                }
                 "mspace" => self.st.mspace = None,
                 "voffset" => self.st.voffset = 0.0,
                 "indent" => self.st.indent = 0.0,
@@ -916,6 +933,7 @@ impl<'a> ParseState<'a> {
                     style: est,
                     cmd_before: std::mem::take(&mut self.pending),
                     sprite: Some(sp),
+                    close_cspace: false,
                 });
             }
             "action" => {}
@@ -973,12 +991,13 @@ fn is_space(cp: u32) -> bool {
 }
 
 fn is_breaking_space(cp: u32) -> bool {
-    matches!(cp, 0x20 | 0x09 | 0x2000..=0x2006 | 0x2008..=0x200B | 0x3000)
+    matches!(cp, 0x20 | 0x09 | 0x2000..=0x2006 | 0x2008..=0x200B | 0x202F | 0x3000)
 }
 
 /// White space as TMP counts it (spaceCount): .NET `char.IsWhiteSpace`.
 fn is_whitespace(cp: u32) -> bool {
-    matches!(cp, 0x09..=0x0D | 0x20 | 0x85 | 0xA0 | 0x1680 | 0x2000..=0x200A | 0x2028 | 0x2029 | 0x202F | 0x205F | 0x3000)
+    // (carriage return excepted)
+    matches!(cp, 0x09..=0x0C | 0x20 | 0x85 | 0xA0 | 0x1680 | 0x2000..=0x200A | 0x2028 | 0x2029 | 0x202F | 0x205F | 0x3000)
 }
 
 /// Unicode punctuation (general category P*), as far as text layout needs it.
@@ -1046,6 +1065,8 @@ struct Shaped {
     style_spacing: f32,
     /// Glyph origin offset from the pen position (monospace centring).
     origin_offset: f32,
+    /// Advance of the hyphen a soft hyphen shows when a line breaks there.
+    shy_width: f32,
 }
 
 fn shape<F: FontProvider>(p: &Parsed, s: &Settings, fonts: &mut F, text_size: f32) -> Vec<Shaped> {
@@ -1087,7 +1108,8 @@ fn shape<F: FontProvider>(p: &Parsed, s: &Settings, fonts: &mut F, text_size: f3
             voffset: st.voffset + st.sup_sub_offset,
             ..Default::default()
         };
-        let is_nl = cp == '\n' as u32 || cp == 0x2028 || cp == 0x2029;
+        // Line feed, vertical tab and the Unicode line / paragraph separators end lines.
+        let is_nl = matches!(cp, 0x0A | 0x0B | 0x2028 | 0x2029);
         let face0 = fonts.face(st.font);
         let mut advance;
         let mut extent_right = 0.0;
@@ -1194,6 +1216,10 @@ fn shape<F: FontProvider>(p: &Parsed, s: &Settings, fonts: &mut F, text_size: f3
         let em = size * unit / 100.0;
         // Character spacing applies to every element; word spacing to spaces.
         let mut spacing = (s.character_spacing) * em + st.cspace;
+        if e.close_cspace {
+            spacing -= st.cspace;
+            info.xadv_from_line_left = true;
+        }
         let char_spacing = if is_nl { 0.0 } else { spacing };
         let mut word_extra = 0.0;
         if is_space(cp) && cp != 0xA0 {
@@ -1207,6 +1233,7 @@ fn shape<F: FontProvider>(p: &Parsed, s: &Settings, fonts: &mut F, text_size: f3
         if let Some(wl) = st.width_scale {
             let _ = wl;
         }
+        let shy_width = if cp == 0xAD { fonts.glyph(st.font, '-' as u32).map(|(_, g)| g.advance * scale).unwrap_or(0.0) } else { 0.0 };
         info.is_space = is_space(cp);
         info.is_newline = is_nl;
         info.break_after = is_breaking_space(cp) || cp == '-' as u32 || cp == 0x2010 || cp == 0xAD || cp == 0x200B;
@@ -1228,6 +1255,7 @@ fn shape<F: FontProvider>(p: &Parsed, s: &Settings, fonts: &mut F, text_size: f3
             char_spacing,
             style_spacing,
             origin_offset,
+            shy_width,
         });
         let _ = &mut scale;
     }
@@ -1270,6 +1298,7 @@ fn break_lines(sh: &mut [Shaped], s: &Settings, avail: f32) -> (Vec<LineSpan>, V
     let mut first_line_of_para = true;
     while start < sh.len() {
         let mut x = if first_line_of_para { sh[start].line_indent } else { 0.0 } + sh[start].indent;
+        let line_x0 = x;
         let mut last_break: Option<usize> = None; // index after which we may break
         let mut i = start;
         let mut end = sh.len();
@@ -1312,13 +1341,20 @@ fn break_lines(sh: &mut [Shaped], s: &Settings, avail: f32) -> (Vec<LineSpan>, V
             }
             xs[i] = x;
             x += e.advance;
+            if e.info.character == 0x0D {
+                // Carriage return: back to the line's start, same line.
+                x = line_x0;
+            }
             if e.info.is_newline {
                 end = i + 1;
                 ends_para = true;
                 break;
             }
             if e.info.break_after && !e.info.no_break {
-                last_break = Some(i);
+                // A soft hyphen is a break opportunity only if its hyphen fits.
+                if e.info.character != 0xAD || x + e.shy_width <= width_here * tolerance + 1e-3 {
+                    last_break = Some(i);
+                }
             }
             i += 1;
         }
@@ -1337,6 +1373,7 @@ fn break_lines(sh: &mut [Shaped], s: &Settings, avail: f32) -> (Vec<LineSpan>, V
     for (li, ln) in lines.iter().enumerate() {
         let para_start = li == 0 || lines[li - 1].ends_paragraph;
         let mut x = if ln.start < sh.len() { (if para_start { sh[ln.start].line_indent } else { 0.0 }) + sh[ln.start].indent } else { 0.0 };
+        let line_x0 = x;
         for i in ln.start..ln.end {
             for c in &sh[i].cmds {
                 match c {
@@ -1354,6 +1391,9 @@ fn break_lines(sh: &mut [Shaped], s: &Settings, avail: f32) -> (Vec<LineSpan>, V
             }
             xs[i] = x;
             x += sh[i].advance;
+            if sh[i].info.character == 0x0D {
+                x = line_x0;
+            }
         }
     }
     (lines, xs)
@@ -1435,6 +1475,33 @@ pub fn layout_at<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size:
     let left = rx + ml;
 
     let (mut lines, mut xs) = break_lines(&mut sh, s, avail_w);
+    // A soft hyphen where a line breaks shows as a hyphen; elsewhere it is an
+    // empty element sitting on the baseline.
+    for li in 0..lines.len() {
+        let ln = &lines[li];
+        for i in ln.start..ln.end {
+            if sh[i].info.character != 0xAD {
+                continue;
+            }
+            let at_break = i + 1 == ln.end && li + 1 < lines.len() && !ln.ends_paragraph;
+            if at_break {
+                if let Some((fu, g)) = fonts.glyph(sh[i].info.font, '-' as u32) {
+                    let e = &mut sh[i];
+                    let sc = e.scale;
+                    e.info.font = fu;
+                    e.info.glyph = g.index;
+                    e.info.glyph_metrics = [g.width, g.height, g.bearing_x, g.bearing_y, g.advance];
+                    e.info.uv_rect = g.rect;
+                    e.info.atlas_index = g.atlas_index;
+                    e.info.atlas_size = g.atlas_size;
+                    e.info.is_visible = true;
+                    e.advance = g.advance * sc;
+                }
+            } else {
+                sh[i].info.baseline_metrics = true;
+            }
+        }
+    }
 
     // Vertical metrics per line.
     struct VLine {
@@ -1519,6 +1586,12 @@ pub fn layout_at<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size:
     // (indents, <pos>, <space>, tabs and tag margins included).
     let pref_w_full = {
         let mut ush = sh.clone();
+        for e in ush.iter_mut().filter(|e| e.info.character == 0xAD) {
+            // Soft hyphens only show where a line breaks.
+            e.advance = 0.0;
+            e.info.is_visible = false;
+            e.info.is_space = true;
+        }
         let nowrap = Settings { wrap: Wrap::NoWrap, ..s.clone() };
         let (ul, uxs) = break_lines(&mut ush, &nowrap, f32::INFINITY);
         let mut best = 0.0f32;
@@ -1857,6 +1930,7 @@ pub fn layout_at<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size:
         let mut run_desc = f32::INFINITY;
         let mut ext_pre_max = f32::NEG_INFINITY;
         let mut ext_pre_pad = 0.0f32;
+        let mut ext_pre_shy = false;
         let last_vis_idx = (ln.start..ln.end).rev().find(|&i| !sh[i].info.is_space && !sh[i].info.is_newline);
         for i in ln.start..ln.end {
             let e = &sh[i];
@@ -1886,7 +1960,7 @@ pub fn layout_at<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size:
             if Some(i) == last_vis_idx && wrapped_line {
                 adv -= e.char_spacing + wrap_style_spacing;
             }
-            let x_adv = pen + adv;
+            let x_adv = if c.xadv_from_line_left { pen + adv - line_left } else { pen + adv };
             c.origin = origin;
             c.x_advance = x_adv;
             c.base_line = v.baseline + c.voffset;
@@ -1899,8 +1973,9 @@ pub fn layout_at<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size:
             }
             run_asc = run_asc.max(c.ascender);
             run_desc = run_desc.min(c.descender);
-            if c.no_word {
-                // Overflow placeholders (ellipsis slot, cut point) sit on the baseline.
+            if c.no_word || c.baseline_metrics {
+                // Overflow placeholders (ellipsis slot, cut point) and unbroken
+                // soft hyphens sit on the baseline.
                 c.ascender = c.base_line;
                 c.descender = c.base_line;
             }
@@ -1962,6 +2037,7 @@ pub fn layout_at<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size:
                 ext_max.x = qx1;
                 ext_pre_max = qx1 - dx - jx;
                 ext_pre_pad = p * sc;
+                ext_pre_shy = c.character == 0xAD;
                 max_adv_pre = left + xs[i] + e.advance - e.char_spacing - if wrapped_line { wrap_style_spacing } else { e.style_spacing };
                 if info.first_visible_character_index < 0 {
                     info.first_visible_character_index = chars.len() as i32;
@@ -1994,7 +2070,8 @@ pub fn layout_at<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size:
         // Length: right edge of the furthest glyph quad from the line's left
         // edge; lines closed by a line feed or the end of the text measure the
         // glyph without its quad padding.
-        let soft_end = !ln.ends_paragraph && (li + 1 < lines.len() || truncated);
+        // (A line ending in a shown soft hyphen measures it without padding too.)
+        let soft_end = !ln.ends_paragraph && (li + 1 < lines.len() || truncated) && !ext_pre_shy;
         info.length = if ext_pre_max.is_finite() { ext_pre_max - line_left - if soft_end { 0.0 } else { ext_pre_pad } } else { 0.0 };
         if !ext_min.x.is_finite() {
             // No visible glyph: the extents are the last character's (empty) quad.
