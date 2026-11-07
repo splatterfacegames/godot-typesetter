@@ -424,9 +424,10 @@ public static class TypesetterDump
         var props = c.ContainsKey("props") ? (Dictionary<string, object>)c["props"] : new Dictionary<string, object>();
         foreach (var kv in props) SetProp(tmp, kv.Key, kv.Value);
 
-        if (c.ContainsKey("material") || c.ContainsKey("keywords"))
+        if (c.ContainsKey("material") || c.ContainsKey("keywords") || c.ContainsKey("shader"))
         {
             var mat = new Material(tmp.fontSharedMaterial);
+            if (c.ContainsKey("shader")) mat.shader = Shader.Find((string)c["shader"]);
             if (c.ContainsKey("keywords"))
                 foreach (var k in (List<object>)c["keywords"])
                 {

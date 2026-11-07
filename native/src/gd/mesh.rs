@@ -119,27 +119,25 @@ pub fn build_quads(l: &Layout, core: &TypesetterTextCore) -> BTreeMap<SurfaceKey
         let key = SurfaceKey { kind: 1, sprite, font: c.font, atlas: if sprite { 0 } else { c.atlas_index }, material: c.material };
         let q = out.entry(key).or_default();
         let (bl, tl, tr, br) = (c.bottom_left, c.top_left, c.top_right, c.bottom_right);
-        let mut corners = [[bl.x, bl.y], [tl.x, tl.y], [tr.x, tr.y], [br.x, br.y]];
-        // Italic: shear top and bottom about the baseline.
-        if c.style & crate::core::layout::style::ITALIC != 0 && !sprite {
-            let shear = 0.35_f32.max(0.0) * italic_factor(core, c);
-            for k in 0..4 {
-                corners[k][0] += (corners[k][1] - c.base_line) * shear;
-            }
-        }
-        // <rotate>: rotate the quad about its centre.
-        if c.rotation != 0.0 {
-            let (cx, cy) = ((bl.x + tr.x) * 0.5, (bl.y + tr.y) * 0.5);
-            let (s, co) = (-c.rotation.to_radians()).sin_cos();
-            for k in corners.iter_mut() {
-                let (dx, dy) = (k[0] - cx, k[1] - cy);
-                *k = [cx + dx * co - dy * s, cy + dx * s + dy * co];
-            }
-        }
-        let uv = if sprite { glyph_uv(c, 0.0) } else { glyph_uv(c, pad) };
+        // Layout has already applied italic shear and <rotate> to these corners.
+        let corners = [[bl.x, bl.y], [tl.x, tl.y], [tr.x, tr.y], [br.x, br.y]];
+        // Bold glyphs sample further into the atlas padding, on both axes (measured
+        // from TextMesh Pro's vertices).
+        let uv_pad = if c.style & crate::core::layout::style::BOLD != 0 {
+            core.font.as_ref().map(|f| {
+                let f = f.bind();
+                pad + f.bold_style / 4.0 * f.atlas_padding as f32
+            }).unwrap_or(pad)
+        } else {
+            pad
+        };
+        let uv = if sprite { glyph_uv(c, 0.0) } else { glyph_uv(c, uv_pad) };
         let mut col = corner_colors(c, global_grad);
         if sprite && !c.sprite.is_some_and(|s| s.tint) {
             col = [[1.0, 1.0, 1.0, c.color[3]]; 4];
+        }
+        if let Some(tint) = c.sprite.and_then(|s| s.color) {
+            col = [tint; 4];
         }
         let face = face_uvs(core, l, c, rect_w, rect_h);
         let mut flags = 0.0;
@@ -159,18 +157,6 @@ pub fn build_quads(l: &Layout, core: &TypesetterTextCore) -> BTreeMap<SurfaceKey
         q.push(corners, [[0.0; 2]; 4], [d.color; 4], [[0.0, 0.0], [0.0, 1.0], [1.0, 1.0], [1.0, 0.0]], d.scale, FLAG_SOLID + FLAG_DECORATION, [-1.0, 0.0, -1.0], -1, flip);
     }
     out
-}
-
-fn italic_factor(core: &TypesetterTextCore, c: &CharInfo) -> f32 {
-    // Font asset italic_style is a percentage-like shear (35 → 0.35 × …); TMP's
-    // documented default 35 yields a slant of about 14°.
-    let style = core
-        .font
-        .as_ref()
-        .map(|f| f.bind().italic_style)
-        .unwrap_or(35.0);
-    let _ = c;
-    style / 35.0 * 0.4
 }
 
 fn face_uvs(core: &TypesetterTextCore, l: &Layout, c: &CharInfo, rect_w: f32, rect_h: f32) -> [[f32; 2]; 4] {

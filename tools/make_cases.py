@@ -237,6 +237,41 @@ UNK = ["<foo>bar</foo> ", "<b=1>x</b> ", "< spaced > ", "<color>nocolor</color> 
 for k in range(1, len(UNK) + 1):
     tp("prefctx_%d" % k, "".join(UNK[:k]), {"fontSize": 30, "textWrappingMode": "NoWrap"}, rect=(1500, 100))
 
+# --- distance-field shader features (materials set through ShaderUtilities IDs)
+FX_TEXT = "Shader Rag"
+
+
+def fx(name, material, keywords=None, text=FX_TEXT):
+    # Runtime-created assets default to the Mobile shader, which has no outline,
+    # glow or bevel, so these name the full one.
+    kw = {"material": material, "shader": "TextMeshPro/Distance Field"}
+    if keywords:
+        kw["keywords"] = keywords
+    case("fx_" + name, text, {"fontSize": 72, "textWrappingMode": "NoWrap"}, rect=(500, 200), **kw)
+
+
+fx("plain", {})
+fx("small", {}, text="Shader Rag at a small size")
+fx("bold", {}, text="<b>Shader</b> Rag")
+case("fx_mobile_small", "Shader Rag at a small size", {"fontSize": 72, "textWrappingMode": "NoWrap"}, rect=(500, 200))
+fx("face_color", {"ID_FaceColor": "#FFA030"})
+fx("dilate_pos", {"ID_FaceDilate": 0.3})
+fx("dilate_neg", {"ID_FaceDilate": -0.2})
+fx("softness", {"ID_OutlineSoftness": 0.3})
+fx("outline", {"ID_OutlineWidth": 0.2, "ID_OutlineColor": "#FF3E8A"})
+fx("outline_wide", {"ID_OutlineWidth": 0.5, "ID_OutlineColor": "#3060FF"})
+fx("outline_soft", {"ID_OutlineWidth": 0.2, "ID_OutlineColor": "#FF3E8A", "ID_OutlineSoftness": 0.25})
+fx("outline_dilate", {"ID_OutlineWidth": 0.2, "ID_OutlineColor": "#FF3E8A", "ID_FaceDilate": 0.2})
+fx("underlay", {"ID_UnderlayColor": "#FF3E8AFF", "ID_UnderlayOffsetX": 0.6, "ID_UnderlayOffsetY": -0.6}, ["UNDERLAY_ON"])
+fx("underlay_soft", {"ID_UnderlayColor": "#FF3E8AFF", "ID_UnderlayOffsetX": 0.5, "ID_UnderlayOffsetY": -0.5, "ID_UnderlaySoftness": 0.5}, ["UNDERLAY_ON"])
+fx("underlay_dilate", {"ID_UnderlayColor": "#3060FFFF", "ID_UnderlayDilate": 0.5}, ["UNDERLAY_ON"])
+fx("underlay_inner", {"ID_UnderlayColor": "#FF3E8AFF", "ID_UnderlayOffsetX": 0.4, "ID_UnderlayOffsetY": -0.4}, ["UNDERLAY_INNER"])
+fx("glow", {"ID_GlowColor": "#30FF60FF", "ID_GlowOuter": 0.6, "ID_GlowPower": 1.0}, ["GLOW_ON"])
+fx("glow_inner", {"ID_GlowColor": "#30FF60FF", "ID_GlowInner": 0.4, "ID_GlowOuter": 0.1, "ID_GlowPower": 0.5}, ["GLOW_ON"])
+fx("glow_offset", {"ID_GlowColor": "#FFA030FF", "ID_GlowOffset": 0.3, "ID_GlowOuter": 0.4, "ID_GlowPower": 1.0}, ["GLOW_ON"])
+fx("bevel", {"ID_BevelAmount": 0.8, "ID_BevelWidth": 0.2, "ID_SpecularColor": "#FFFFFF", "ID_FaceColor": "#8090FF"}, ["BEVEL_ON"])
+fx("outline_underlay_glow", {"ID_OutlineWidth": 0.15, "ID_OutlineColor": "#FF3E8A", "ID_UnderlayColor": "#000000C0", "ID_UnderlayOffsetX": 0.5, "ID_UnderlayOffsetY": -0.5, "ID_GlowColor": "#30FF60FF", "ID_GlowOuter": 0.3}, ["UNDERLAY_ON", "GLOW_ON"])
+
 # --- atlas generation per render mode (ASCII, static set)
 for mode in ("SDF", "SDFAA", "SDFAA_HINTED", "SDF8", "SDF16", "SDF32", "SMOOTH", "SMOOTH_HINTED", "RASTER", "RASTER_HINTED"):
     case("atlas_" + mode.lower(), "AVg@", {"fontSize": 48, "textWrappingMode": "NoWrap"}, rect=(400, 100),

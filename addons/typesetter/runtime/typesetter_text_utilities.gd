@@ -14,6 +14,7 @@ extends RefCounted
 enum CaretPosition { NONE, LEFT, RIGHT }
 
 static var _lookups := {}
+static var _overrides := {}
 
 
 ## Converts a viewport position to the text node's local space; returns null
@@ -308,6 +309,8 @@ static func _scan(dir_key: String, ext_filter: Callable) -> Dictionary:
 ## Name → TypesetterFontAsset for `<font="name">`, from the font asset folder
 ## (TypesetterSettings `default_font_asset_path`).
 static func font_lookup() -> Dictionary:
+	if _overrides.has("font"):
+		return _overrides["font"]
 	return _scan("default_font_asset_path", func(r): return r is TypesetterFontAsset)
 
 
@@ -318,6 +321,8 @@ static func material_lookup() -> Dictionary:
 
 ## Name → PackedColorArray for `<gradient="name">`, from the colour gradient folder.
 static func gradient_lookup() -> Dictionary:
+	if _overrides.has("gradient"):
+		return _overrides["gradient"]
 	var src := _scan("default_color_gradient_presets_path", func(r): return r is TypesetterColorGradient)
 	var d := {}
 	for k in src:
@@ -328,3 +333,10 @@ static func gradient_lookup() -> Dictionary:
 ## Forgets scanned asset folders (call after adding assets at runtime).
 static func clear_lookups() -> void:
 	_lookups.clear()
+	_overrides.clear()
+
+
+## Replaces a name lookup ("font" or "gradient") with `values`, instead of
+## scanning the asset folder. For assets built at runtime.
+static func set_lookup_override(kind: String, values: Dictionary) -> void:
+	_overrides[kind] = values

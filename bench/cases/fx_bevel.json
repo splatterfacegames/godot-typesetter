@@ -1,0 +1,24 @@
+{
+ "font": "Inter-Regular.ttf",
+ "component": "ugui",
+ "rect": [
+  500,
+  200
+ ],
+ "text": "Shader Rag",
+ "props": {
+  "fontSize": 72,
+  "alignment": "TopLeft",
+  "textWrappingMode": "NoWrap"
+ },
+ "material": {
+  "ID_BevelAmount": 0.8,
+  "ID_BevelWidth": 0.2,
+  "ID_SpecularColor": "#FFFFFF",
+  "ID_FaceColor": "#8090FF"
+ },
+ "shader": "TextMeshPro/Distance Field",
+ "keywords": [
+  "BEVEL_ON"
+ ]
+}

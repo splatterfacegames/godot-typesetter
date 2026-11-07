@@ -1,0 +1,24 @@
+{
+ "font": "Inter-Regular.ttf",
+ "component": "ugui",
+ "rect": [
+  500,
+  200
+ ],
+ "text": "Shader Rag",
+ "props": {
+  "fontSize": 72,
+  "alignment": "TopLeft",
+  "textWrappingMode": "NoWrap"
+ },
+ "material": {
+  "ID_GlowColor": "#FFA030FF",
+  "ID_GlowOffset": 0.3,
+  "ID_GlowOuter": 0.4,
+  "ID_GlowPower": 1.0
+ },
+ "shader": "TextMeshPro/Distance Field",
+ "keywords": [
+  "GLOW_ON"
+ ]
+}

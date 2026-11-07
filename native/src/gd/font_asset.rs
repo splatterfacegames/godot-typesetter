@@ -5,7 +5,7 @@
 //! atlas pages' pixels) is rebuilt lazily from them. Dynamic assets keep their
 //! source `FontFile` and add glyphs on demand.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use godot::classes::image::Format;
 use godot::classes::{FontFile, IResource, Image, ImageTexture, Resource, Texture2D};
@@ -37,6 +37,8 @@ pub struct Runtime {
     pub chars: HashMap<u32, u32>,
     pub glyphs: HashMap<u32, GlyphRec>,
     pub pairs: HashMap<(u32, u32), [f32; 8]>,
+    /// Pairs already looked up in the font for a dynamic asset.
+    pub pairs_checked: HashSet<(u32, u32)>,
     /// first component → [(remaining components, ligature glyph)]
     pub ligatures: HashMap<u32, Vec<(Vec<u32>, u32)>>,
     pub face: Option<Face>,
@@ -113,17 +115,20 @@ impl TypesetterFaceInfo {
         self.ascent_line = (m.ascender * s) as f32;
         self.descent_line = (m.descender * s) as f32;
         self.line_height = ((m.ascender - m.descender + m.line_gap) * s) as f32;
-        self.cap_line = (m.cap_height * s) as f32;
-        self.mean_line = (m.x_height * s) as f32;
+        // Measured from TextMesh Pro's assets (see bench/unity/atlases): the cap and
+        // mean lines round up, super/subscript come from the ascent and descent rather
+        // than OS/2, and strikethrough follows the mean line.
+        self.cap_line = (m.cap_height * s).ceil() as f32;
+        self.mean_line = (m.x_height * s).ceil() as f32;
         self.baseline = 0.0;
-        self.superscript_offset = (m.superscript_offset * s) as f32;
-        self.superscript_size = (m.superscript_size / m.units_per_em.max(1.0)) as f32;
-        self.subscript_offset = (m.subscript_offset * s) as f32;
-        self.subscript_size = (m.subscript_size / m.units_per_em.max(1.0)) as f32;
-        self.underline_offset = (m.underline_offset * s) as f32;
+        self.superscript_offset = self.ascent_line;
+        self.superscript_size = 0.5;
+        self.subscript_offset = self.descent_line;
+        self.subscript_size = 0.5;
         self.underline_thickness = (m.underline_thickness * s) as f32;
-        self.strikethrough_offset = (m.strikethrough_offset * s) as f32;
-        self.strikethrough_thickness = (m.strikethrough_thickness * s) as f32;
+        self.underline_offset = (m.underline_offset * s) as f32 - self.underline_thickness * 0.5;
+        self.strikethrough_offset = self.mean_line * 0.4;
+        self.strikethrough_thickness = self.underline_thickness;
         self.tab_width = (m.tab_width / 10.0 * s).floor() as f32; // whole units, as TMP reports
     }
 }
@@ -847,6 +852,29 @@ impl TypesetterFontAsset {
         self.base_mut().emit_signal("atlas_updated", &[]);
         missing.sort();
         missing
+    }
+
+    /// Kerning for one pair of a dynamic asset, read from the font the first time
+    /// the pair is used. Rebuilding the whole table per added glyph would be
+    /// quadratic on long CJK text.
+    pub fn dynamic_pair(&mut self, left: u32, right: u32) -> Option<[f32; 8]> {
+        if let Some(v) = self.rt.pairs.get(&(left, right)) {
+            return Some(*v);
+        }
+        if self.atlas_population_mode == Self::STATIC || !self.rt.pairs_checked.insert((left, right)) {
+            return None;
+        }
+        let point_size = self.get_sampling_point_size() as f64;
+        let full = self.full_font_features;
+        let face = self.face()?;
+        let s = point_size / face.metrics().units_per_em.max(1.0);
+        let glyphs = [left, right];
+        let found = if full { face.pair_adjustments(&glyphs) } else { face.legacy_pair_adjustments(&glyphs) };
+        let p = found.into_iter().find(|p| p.first == left && p.second == right)?;
+        let (f, q) = (&p.first_adj, &p.second_adj);
+        let v = [f.x_placement, f.y_placement, f.x_advance, f.y_advance, q.x_placement, q.y_placement, q.x_advance, q.y_advance].map(|v| (v * s) as f32);
+        self.rt.pairs.insert((left, right), v);
+        Some(v)
     }
 
     fn refresh_features(&mut self, face: &Face, full: bool) {

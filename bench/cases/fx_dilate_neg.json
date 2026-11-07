@@ -1,0 +1,18 @@
+{
+ "font": "Inter-Regular.ttf",
+ "component": "ugui",
+ "rect": [
+  500,
+  200
+ ],
+ "text": "Shader Rag",
+ "props": {
+  "fontSize": 72,
+  "alignment": "TopLeft",
+  "textWrappingMode": "NoWrap"
+ },
+ "material": {
+  "ID_FaceDilate": -0.2
+ },
+ "shader": "TextMeshPro/Distance Field"
+}

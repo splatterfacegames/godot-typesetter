@@ -5,6 +5,7 @@ extends RefCounted
 var assets := {}
 var enums := {}
 var params := {}
+var _style_sheet: TypesetterStyleSheet
 
 
 func _init() -> void:
@@ -12,7 +13,9 @@ func _init() -> void:
 
 
 static func load_case(name: String) -> Dictionary:
-	return JSON.parse_string(FileAccess.get_file_as_string("res://bench/cases/%s.json" % name))
+	var c: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://bench/cases/%s.json" % name))
+	c["_name"] = name
+	return c
 
 
 static func load_unity(name: String) -> Dictionary:
@@ -45,10 +48,100 @@ func build(c: Dictionary) -> Node:
 		l.size = Vector2(rect[0], rect[1])
 		node = l
 	node.font = _asset(c)
+	_apply_case_resources(node, c)
 	_apply_props(node, c.get("props", {}))
 	_apply_material(node, c)
 	node.text = c.get("text", "")
 	return node
+
+
+## Named fonts, fallbacks, gradients, sprites and styles, set up the way
+## tools/unity-dump sets them up for TextMesh Pro.
+func _apply_case_resources(node: Node, c: Dictionary) -> void:
+	var fonts := {}
+	var named: Dictionary = c.get("fonts", {})
+	for alias in named:
+		fonts[alias] = _asset(named[alias])
+	TypesetterTextUtilities.set_lookup_override("font", fonts)
+	var fallbacks: Array[TypesetterFontAsset] = []
+	for alias in c.get("fallbacks", []):
+		fallbacks.append(fonts[alias])
+	(node.font as TypesetterFontAsset).fallback_font_asset_table = fallbacks
+	var gradients := {}
+	var named_gradients: Dictionary = c.get("gradients", {})
+	for gradient_name in named_gradients:
+		var colors := PackedColorArray()
+		for html in named_gradients[gradient_name]:
+			colors.append(Color.html(html))
+		gradients[gradient_name] = colors
+	TypesetterTextUtilities.set_lookup_override("gradient", gradients)
+	node.style_sheet = _unity_style_sheet()
+	if c.has("spriteAsset"):
+		node.sprite_asset = _sprite_asset(c)
+
+
+func _unity_style_sheet() -> TypesetterStyleSheet:
+	if _style_sheet != null:
+		return _style_sheet
+	_style_sheet = TypesetterStyleSheet.new()
+	var settings: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://bench/unity/_settings.json"))
+	var styles: Array[TypesetterStyle] = []
+	for s in settings.get("styles", []):
+		styles.append(TypesetterStyle.create(s.name, s.open, s.close))
+	_style_sheet.styles = styles
+	return _style_sheet
+
+
+func _sprite_asset(c: Dictionary) -> TypesetterSpriteAsset:
+	var spec: Dictionary = c.spriteAsset
+	var dumped: Dictionary = load_unity(_case_name(c)).get("spriteAsset", {})
+	var a := TypesetterSpriteAsset.new()
+	a.resource_name = spec.name
+	# The sheet the Unity harness drew and saved, when it has been dumped.
+	var image := Image.load_from_file("res://bench/unity/atlases/sprites.png")
+	if image == null or image.is_empty():
+		image = Image.create(int(spec.width), int(spec.height), false, Image.FORMAT_RGBA8)
+		image.fill(Color.WHITE)
+	a.sprite_sheet = ImageTexture.create_from_image(image)
+	var face: Dictionary = spec.get("faceInfo", {})
+	a.face_info = {
+		"point_size": float(face.get("pointSize", 0.0)), "ascent_line": float(face.get("ascentLine", 0.0)),
+		"descent_line": float(face.get("descentLine", 0.0)), "line_height": float(face.get("lineHeight", 0.0)),
+		"baseline": 0.0, "scale": float(face.get("scale", 1.0)),
+	}
+	# Unity's upgrade of the harness's legacy asset decides which glyph each
+	# sprite really uses, so the dump is the reference for that mapping.
+	var glyphs: Array[TypesetterSpriteGlyph] = []
+	var chars: Array[TypesetterSpriteCharacter] = []
+	var sprites: Array = spec.sprites
+	for i in sprites.size():
+		var sp: Dictionary = sprites[i]
+		var dumped_char: Dictionary = dumped.characters[i] if dumped.has("characters") else {}
+		var src_index := int(dumped_char.get("glyphIndex", i))
+		var m: Array = dumped.glyphs[src_index].metrics if dumped.has("glyphs") else sp.metrics
+		var r: Array = dumped.glyphs[src_index].rect if dumped.has("glyphs") else sp.rect
+		var g := TypesetterSpriteGlyph.new()
+		g.index = i
+		g.glyph_rect = Rect2i(int(r[0]), int(spec.height) - int(r[1]) - int(r[3]), int(r[2]), int(r[3]))
+		g.metrics_width = m[0]
+		g.metrics_height = m[1]
+		g.bearing_x = m[2]
+		g.bearing_y = m[3]
+		g.advance = m[4]
+		glyphs.append(g)
+		var ch := TypesetterSpriteCharacter.new()
+		ch.name = sp.name
+		ch.unicode = int(dumped_char.get("unicode", sp.get("unicode", 0xFFFE)))
+		ch.glyph_index = i
+		ch.scale = float(dumped_char.get("scale", sp.get("scale", 1.0)))
+		chars.append(ch)
+	a.sprite_glyph_table = glyphs
+	a.sprite_character_table = chars
+	return a
+
+
+static func _case_name(c: Dictionary) -> String:
+	return c.get("_name", "")
 
 
 func _asset(c: Dictionary) -> TypesetterFontAsset:
@@ -126,7 +219,7 @@ const MATERIAL_IDS := {
 	"ID_UnderlayDilate": "underlay_dilate", "ID_UnderlaySoftness": "underlay_softness",
 	"ID_GlowColor": "glow_color", "ID_GlowOffset": "glow_offset", "ID_GlowInner": "glow_inner", "ID_GlowOuter": "glow_outer", "ID_GlowPower": "glow_power",
 	"ID_WeightNormal": "weight_normal", "ID_WeightBold": "weight_bold", "ID_Sharpness": "sharpness", "ID_PerspectiveFilter": "perspective_filter",
-	"ID_LightAngle": "light_angle", "ID_Bevel": "bevel", "ID_BevelOffset": "bevel_offset", "ID_BevelWidth": "bevel_width",
+	"ID_LightAngle": "light_angle", "ID_BevelAmount": "bevel", "ID_BevelOffset": "bevel_offset", "ID_BevelWidth": "bevel_width",
 	"ID_BevelRoundness": "bevel_roundness", "ID_BevelClamp": "bevel_clamp", "ID_SpecularColor": "specular_color",
 	"ID_Shininess": "specular_power", "ID_Reflectivity": "reflectivity", "ID_Diffuse": "diffuse", "ID_Ambient": "ambient",
 }
@@ -141,7 +234,10 @@ func _apply_material(node: Node, c: Dictionary) -> void:
 		return
 	var m: ShaderMaterial = node.font_material
 	for k in params:
-		m.set_shader_parameter(k, params[k])
+		if k == "bold_style":
+			node.font.bold_style = params[k]
+		else:
+			m.set_shader_parameter(k, params[k])
 	for k in c.get("keywords", []):
 		if KEYWORDS.has(k):
 			m.set_shader_parameter(KEYWORDS[k][0], KEYWORDS[k][1])

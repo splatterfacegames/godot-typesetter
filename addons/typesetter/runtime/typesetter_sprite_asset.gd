@@ -151,9 +151,8 @@ func find_sprite(index: int, sprite_name: String, unicode: int = 0) -> Dictionar
 	if asset.sprite_sheet != null:
 		sheet_size = Vector2(asset.sprite_sheet.get_width(), asset.sprite_sheet.get_height())
 	var fi := asset.face_info
+	# 0 means no face info: the sprite then fills the font's ascent line.
 	var pt: float = fi.get("point_size", 0.0)
-	if pt <= 0.0:
-		pt = g.metrics_height
 	return {
 		"index": ci,
 		"unicode": ch.unicode,

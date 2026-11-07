@@ -115,6 +115,9 @@ pub struct SpriteInfo {
     pub ascent: f32,
     pub descent: f32,
     pub tint: bool,
+    /// `color` attribute of a <sprite> tag: tints the vertices; characterInfo.color
+    /// keeps the text colour, as in TextMesh Pro.
+    pub color: Option<[f32; 4]>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -297,6 +300,8 @@ pub struct CharInfo {
     pub underline_color: [f32; 4],
     pub strikethrough_color: [f32; 4],
     pub highlight_color: [f32; 4],
+    /// <mark padding="left,right,bottom,top"> in font units.
+    pub highlight_padding: [f32; 4],
     pub style: u32,
     pub is_visible: bool,
     pub link: i32,
@@ -442,6 +447,7 @@ struct StyleState {
     underline_color: Option<[f32; 4]>,
     strike_color: Option<[f32; 4]>,
     mark: Option<[f32; 4]>,
+    mark_padding: [f32; 4],
     cspace: f32,
     mspace: Option<f32>,
     voffset: f32,
@@ -492,6 +498,7 @@ fn base_style(s: &Settings) -> StyleState {
         underline_color: None,
         strike_color: None,
         mark: None,
+        mark_padding: [0.0; 4],
         cspace: 0.0,
         mspace: None,
         voffset: 0.0,
@@ -544,6 +551,7 @@ struct ParseState<'a> {
     pending: Vec<Cmd>,
     links: Vec<LinkInfo>,
     open_link: Option<usize>,
+    empty_link_start: Option<usize>,
     style_stack: Vec<String>,
 }
 
@@ -642,6 +650,7 @@ impl<'a> ParseState<'a> {
                 "material" => restore!("material", material),
                 "mark" => {
                     self.st.style &= !style::HIGHLIGHT;
+                    self.st.mark_padding = [0.0; 4];
                     restore!("mark", mark)
                 }
                 "sup" | "sub" => {
@@ -694,6 +703,9 @@ impl<'a> ParseState<'a> {
                     if let Some(li) = self.open_link.take() {
                         let first = self.links[li].link_text_first_character_index as usize;
                         self.links[li].link_text_length = (self.elems.len() - first) as i32;
+                    }
+                    if let Some(first) = self.empty_link_start.take() {
+                        self.links.push(LinkInfo { link_id: String::new(), link_text_first_character_index: first as i32, link_text_length: (self.elems.len() - first) as i32, hash_code: tag_hash("") });
                     }
                     self.st.link = -1;
                 }
@@ -779,6 +791,12 @@ impl<'a> ParseState<'a> {
                 self.save("mark");
                 self.st.style |= style::HIGHLIGHT;
                 self.st.mark = Some(richtext::parse_color(&v).unwrap_or(DEFAULT_MARK));
+                if let Some((_, p)) = t.attrs.iter().find(|(k, _)| k == "padding") {
+                    let parts: Vec<f32> = p.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+                    if let [l, r, b, top] = parts[..] {
+                        self.st.mark_padding = [l, r, b, top];
+                    }
+                }
             }
             "sup" | "sub" => {
                 self.save("supsub");
@@ -890,6 +908,8 @@ impl<'a> ParseState<'a> {
                 // link tag without any id is consumed but records no link.
                 let id = if name == "a" && t.value.is_none() { t.attrs.first().map(|x| x.0.clone()).unwrap_or_default() } else { v.clone() };
                 if id.is_empty() {
+                    // TMP records it only once closed, and never for <a>.
+                    self.empty_link_start = if name == "link" { Some(self.elems.len()) } else { None };
                     return true;
                 }
                 let hash = tag_hash(&id);
@@ -923,15 +943,16 @@ impl<'a> ParseState<'a> {
                 if let Some((_, tv)) = t.attrs.iter().find(|(k, _)| k == "tint") {
                     sp.tint = tv != "0";
                 }
-                let mut est = self.st.clone();
+                let est = self.st.clone();
                 if let Some((_, c)) = t.attrs.iter().find(|(k, _)| k == "color") {
                     if let Some(c) = richtext::parse_color(c) {
-                        est.color = c;
+                        sp.color = Some(c);
                         sp.tint = true;
                     }
                 }
                 self.elems.push(Elem {
-                    cp: if sp.unicode != 0 { sp.unicode } else { 0xFFFE },
+                    // TextMesh Pro reports a <sprite> tag as private-use U+E000 + index.
+                    cp: 0xE000 + sp.index,
                     src: ti,
                     len: tl,
                     style: est,
@@ -975,6 +996,7 @@ fn parse<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size: f32) ->
         pending: Vec::new(),
         links: Vec::new(),
         open_link: None,
+        empty_link_start: None,
         style_stack: Vec::new(),
     };
     p.base.size = size;
@@ -1016,10 +1038,10 @@ fn is_punctuation(cp: u32) -> bool {
 }
 
 /// Characters that belong to words (TMP wordInfo): letters, digits, hyphens
-/// and the soft hyphen; sprites count as word characters.
+/// and the soft hyphen. Sprites are not word characters.
 fn is_word_char(c: &CharInfo) -> bool {
     if c.element_type == ElementType::Sprite {
-        return true;
+        return false;
     }
     matches!(c.character, 0x2D | 0xAD | 0x2010) || char::from_u32(c.character).is_some_and(|ch| ch.is_alphanumeric())
 }
@@ -1106,6 +1128,7 @@ fn shape<F: FontProvider>(p: &Parsed, s: &Settings, fonts: &mut F, text_size: f3
             underline_color: st.underline_color.unwrap_or(st.color),
             strikethrough_color: st.strike_color.unwrap_or(st.color),
             highlight_color: st.mark.unwrap_or([0.0; 4]),
+            highlight_padding: st.mark_padding,
             link: st.link,
             gradient: st.gradient,
             rotation: st.rotate,
@@ -1147,7 +1170,10 @@ fn shape<F: FontProvider>(p: &Parsed, s: &Settings, fonts: &mut F, text_size: f3
             // Sprites scale to the current font's ascent line (TMP behaviour: sprite
             // height relative to the font).
             let fs = size / face0.point_size.max(1.0) * unit;
-            let sprite_scale = if sp.point_size > 0.0 { face0.ascent / sp.ascent.max(1e-3) * fs * sp.scale } else { fs * sp.scale };
+            // Measured from TextMesh Pro: with face info, size / point size; without,
+            // the glyph's height fills the font's ascent line.
+            let has_face = sp.point_size > 0.0;
+            let sprite_scale = if has_face { size / sp.point_size * unit * sp.scale } else { fs * face0.ascent / sp.height.max(1e-3) * sp.scale };
             scale = sprite_scale;
             info.scale = sprite_scale;
             info.glyph_metrics = [sp.width, sp.height, sp.bearing_x, sp.bearing_y, sp.advance];
@@ -1155,8 +1181,9 @@ fn shape<F: FontProvider>(p: &Parsed, s: &Settings, fonts: &mut F, text_size: f3
             info.atlas_size = sp.atlas_size;
             info.font = sp.asset;
             info.glyph = sp.index;
-            info.elem_ascender = face0.ascent * fs;
-            info.elem_descender = face0.descent * fs;
+            let face_scale = size / sp.point_size.max(1e-3) * unit;
+            info.elem_ascender = if has_face { sp.ascent * face_scale } else { face0.ascent * fs };
+            info.elem_descender = if has_face { sp.descent * face_scale } else { face0.descent * fs };
             info.is_visible = true;
             advance = sp.advance * sprite_scale;
             extent_right = (sp.bearing_x + sp.width) * sprite_scale;
@@ -2377,6 +2404,13 @@ fn build_decorations<F: FontProvider>(chars: &[CharInfo], fonts: &mut F, out: &m
                 1 => c.strikethrough_color,
                 _ => c.highlight_color,
             };
+            // Measured: highlights show at half their alpha, and FontStyles.Highlight
+            // without a <mark> colour is white.
+            let shown = match (kind, color) {
+                (2, [0.0, 0.0, 0.0, 0.0]) => [1.0, 1.0, 1.0, 0.5],
+                (2, [r, g, b, a]) => [r, g, b, a * 0.5],
+                _ => color,
+            };
             let mut j = i;
             while j + 1 < chars.len()
                 && chars[j + 1].style & flag != 0
@@ -2397,18 +2431,27 @@ fn build_decorations<F: FontProvider>(chars: &[CharInfo], fonts: &mut F, out: &m
             }
             let f = fonts.face(c.font);
             let sc = c.scale;
+            // Measured from TextMesh Pro's renders: the offset is the band's top edge
+            // and the visible thickness is 0.88 of the font's.
+            let band = f.underline_thickness * sc * 0.88;
             let (y0, y1) = match kind {
                 0 => {
-                    let y = c.base_line - c.voffset + f.underline_offset * sc;
-                    (y - f.underline_thickness * sc * 0.5, y + f.underline_thickness * sc * 0.5)
+                    let top = c.base_line - c.voffset + f.underline_offset * sc;
+                    (top - band, top)
                 }
                 1 => {
-                    let y = c.base_line + f.strikethrough_offset * sc;
-                    (y - f.underline_thickness * sc * 0.5, y + f.underline_thickness * sc * 0.5)
+                    let top = c.base_line + f.strikethrough_offset * sc;
+                    (top - band, top)
                 }
-                _ => (c.descender, c.ascender),
+                _ => (c.descender - c.highlight_padding[2] * sc, c.ascender + c.highlight_padding[3] * sc),
             };
-            out.decorations.push(Decoration { kind, font: c.font, x0: c.origin, x1: chars[k].x_advance, y0, y1, color, page: c.page_number, scale: sc });
+            // Highlights span the glyph quads; lines span the advances.
+            let (x0, x1) = if kind == 2 {
+                (c.bottom_left.x - c.highlight_padding[0] * sc, chars[k].top_right.x + c.highlight_padding[1] * sc)
+            } else {
+                (c.origin, chars[k].x_advance)
+            };
+            out.decorations.push(Decoration { kind, font: c.font, x0, x1, y0, y1, color: shown, page: c.page_number, scale: sc });
             i = j + 1;
         }
     }

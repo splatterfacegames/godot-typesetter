@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Typesetter: signed-distance-field text for Godot</title>
+<meta name="description" content="A Godot 4.7 addon with TextMesh Pro's feature set and API under new names. Text stays sharp at any scale, and layout is checked against Unity's own output.">
+<link rel="icon" href="mark.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,400;0,600;0,800;1,400&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="hero">
+  <canvas id="stage" aria-label="Your text, drawn live from a distance-field atlas"></canvas>
+  <p class="fallback">This preview needs WebGL 2.</p>
+  <form class="controls" onsubmit="return false">
+    <label class="text-field">Type anything
+      <input id="sample" type="text" value="Typesetter" maxlength="40" autocomplete="off" spellcheck="false">
+    </label>
+    <label>Dilate <input id="dilate" type="range" min="-40" max="60" value="0"></label>
+    <label>Softness <input id="softness" type="range" min="0" max="60" value="0"></label>
+    <label>Outline <input id="outline" type="range" min="0" max="70" value="12"></label>
+    <label>Underlay <input id="underlay" type="range" min="0" max="100" value="45"></label>
+    <label class="check"><input id="field" type="checkbox"> Show the atlas's raw distance field</label>
+  </form>
+</header>
+
+<main>
+  <section class="lead">
+    <h1>Signed-distance-field text for Godot 4.7</h1>
+    <p>Typesetter gives Godot TextMesh Pro's feature set: rich text, outlines, underlays, glow, bevels, sprites, text that flows between boxes, and per-character animation. Every class and member follows TextMesh Pro's API under a new name, so what you already know carries over.</p>
+    <p>The text above is drawn from an atlas Typesetter generated, with the same distance formula as its shaders. Each slider changes one uniform, with no new atlas and no new mesh.</p>
+    <p class="links"><a href="https://github.com/jethac/godot-typesetter">Source on GitHub</a> <a href="https://github.com/jethac/godot-typesetter/blob/main/docs/api-map.md">Full API map</a> <a href="https://github.com/jethac/godot-typesetter/blob/main/docs/research.md">How we chose SDF</a></p>
+  </section>
+
+  <section>
+    <h2>The same API under new names</h2>
+    <div class="scroll">
+      <table>
+        <thead><tr><th scope="col">TextMesh Pro</th><th scope="col">Typesetter</th></tr></thead>
+        <tbody>
+          <tr><td><code>TextMeshProUGUI</code></td><td><code>TypesetterLabel</code></td></tr>
+          <tr><td><code>TextMeshPro</code></td><td><code>TypesetterText3D</code></td></tr>
+          <tr><td><code>TMP_FontAsset</code></td><td><code>TypesetterFontAsset</code></td></tr>
+          <tr><td><code>TMP_InputField</code></td><td><code>TypesetterInputField</code></td></tr>
+          <tr><td><code>text.SetText("{0:2}", score)</code></td><td><code>text.set_text("{0:2}", score)</code></td></tr>
+          <tr><td><code>text.textInfo.characterInfo[i]</code></td><td><code>text.text_info.character_info[i]</code></td></tr>
+          <tr><td><code>text.GetPreferredValues()</code></td><td><code>text.get_preferred_values()</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Checked against Unity's own output</h2>
+    <p>A Unity batchmode project drives TextMesh Pro through its public API and records glyph positions, line breaks, sizes, atlases and renders. Typesetter is compared with those recordings on every commit, using the same open-licensed fonts on both sides.</p>
+    <figure class="compare">
+      <div><img src="compare-unity.png" alt="Bold, italic, underlined, struck-through, large and red text rendered by Unity TextMesh Pro" width="512" height="256" loading="lazy"><figcaption>Unity TextMesh Pro</figcaption></div>
+      <div><img src="compare-typesetter.png" alt="The same text rendered by Typesetter in Godot" width="512" height="256" loading="lazy"><figcaption>Typesetter in Godot</figcaption></div>
+    </figure>
+    <ul class="results" id="results">
+      <li><strong>198 of 206</strong> layout cases match to 0.02 units. The other 8 are listed with their causes in the <a href="https://github.com/jethac/godot-typesetter/blob/main/docs/parity.md">parity notes</a>.</li>
+      <li><strong>0.05 to 0.90 of 255</strong> mean atlas difference, depending on the render mode.</li>
+      <li><strong>0.075 of 255</strong> median rendered pixel difference over 227 cases. Glow and bevel are fitted approximations and differ more.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Install</h2>
+    <ol>
+      <li>Copy <code>addons/typesetter</code> into your project. Build the native library with <code>python native/build.py</code>, or take it from the CI artifacts.</li>
+      <li>Enable Typesetter under Project Settings, Plugins.</li>
+      <li>Open Project, Tools, Typesetter: Font Asset Creator, generate an atlas, and add a <code>TypesetterLabel</code> to a scene.</li>
+    </ol>
+    <p>Windows, Linux and macOS are supported. Web builds aren't yet, because the Rust core doesn't target them.</p>
+  </section>
+
+  <section>
+    <h2>Provenance</h2>
+    <p>Typesetter is a clean-room implementation created by Claude Opus 5.5 (Anthropic), written from Unity's public documentation, published papers and black-box measurements. No TextMesh Pro source was read, and no Unity shaders, fonts or sprites are included. It isn't affiliated with or endorsed by Unity Technologies. TextMesh Pro and Unity are trademarks of their owners. Typesetter is MIT licensed.</p>
+  </section>
+</main>
+<script src="app.js" defer></script>
+</body>
+</html>

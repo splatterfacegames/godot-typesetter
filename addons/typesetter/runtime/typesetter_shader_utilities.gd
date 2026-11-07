@@ -115,12 +115,11 @@ static func update_shader_ratios(m: Material) -> void:
 	var ratio_a := range_ / t
 	# B: glow.
 	var glow := maxf(1.0, _f(sm, &"glow_offset") + _f(sm, &"glow_outer"))
-	var ratio_b := maxf(0.0, g - 1.0 - weight * g) / (g * glow) if _b(sm, &"glow_enabled") else 1.0
-	ratio_b = minf(ratio_b, 1.0) if ratio_b > 0.0 else 1.0
+	var ratio_b := range_ * (1.0 - weight) / glow
 	# C: underlay offset, dilate and softness.
 	var off := maxf(absf(_f(sm, &"underlay_offset_x")), absf(_f(sm, &"underlay_offset_y")))
 	var tc := maxf(1.0, off + _f(sm, &"underlay_dilate") + _f(sm, &"underlay_softness"))
-	var ratio_c := maxf(0.0, g - 1.0 - weight * g) / (g * tc)
+	var ratio_c := range_ * (1.0 - weight) / tc
 	sm.set_shader_parameter(&"scale_ratio_a", ratio_a)
 	sm.set_shader_parameter(&"scale_ratio_b", ratio_b)
 	sm.set_shader_parameter(&"scale_ratio_c", ratio_c)

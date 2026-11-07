@@ -2,7 +2,7 @@
 
 **Signed-distance-field text for Godot 4.7, with a TextMesh Pro-style API.**
 
-[Repository](https://github.com/jethac/godot-typesetter) · [MIT License](LICENSE)
+[Repository](https://github.com/jethac/godot-typesetter) · [MIT License](LICENSE) · [Site](https://godot-typesetter.jethachan.net/)
 
 Typesetter is a Godot-native text renderer modelled on TextMesh Pro's feature
 set. Its public API is meant to map one-to-one onto TextMesh Pro's under renamed
@@ -14,27 +14,31 @@ snake_case).
 
 ## Status
 
-Early development; not usable yet. What exists today:
+Usable, with validation results in [docs/parity.md](docs/parity.md):
 
-- **Native core** (`native/`, Rust):
-  - font loading via skrifa, with glyph metrics that reproduce Unity's to the
-    1/64 px;
-  - atlas generation in TextMesh Pro's documented render modes (SDF, SDFAA,
-    SDF8/16/32, bitmap, hinted variants) plus MSDF/MTSDF via fdsm;
-  - MaxRects/Skyline packing and static or dynamic atlases;
-  - a rich-text tokenizer;
-  - a layout engine.
-- **Layout parity:** on the 60 black-box cases in `bench/cases`, glyph
-  positions, line breaks, preferred and rendered sizes, overflow and
-  auto-size results match Unity TextMesh Pro to within 0.02 units
-  (`cargo run --release --example parity` in `native/`).
-- **Godot bindings in progress:** `TypesetterFontAsset`, `TypesetterTextCore`
-  (layout, textInfo, meshes) and the distance-field shaders compile.
+- **Font assets:** `TypesetterFontAsset` with static and dynamic atlases, fallback
+  chains and sprite assets, in TextMesh Pro's render modes (SDF, SDFAA, SDF8/16/32,
+  bitmap, hinted) plus MSDF and MTSDF.
+- **Text nodes:** `TypesetterLabel` and `TypesetterText3D`, with rich text, style
+  sheets, gradients, every overflow mode, auto-size, pages and `text_info` for
+  per-character animation.
+- **Shaders:** face, outline, underlay, glow and bevel, plus Mobile and Bitmap
+  variants, with anti-aliasing that holds at any scale in 2D and 3D.
+- **Input:** `TypesetterInputField` and `TypesetterDropdown`.
+- **Editor:** the Font Asset Creator, font asset inspector, menu items and a 3D text
+  gizmo.
+- **Code that owns its own drawing:** `TypesetterTextLayout` measures, lays out and
+  draws text without a node. See [its section below](#drawing-without-a-node).
 
-Not built yet: the text nodes (`TypesetterLabel`, `TypesetterText3D`), the input
-field, editor tooling, shader calibration against Unity's renders, tests in
-Godot, benchmarks, CI and the product site. See [docs/research.md](docs/research.md)
-for the survey, architecture and milestone plan.
+Measured against Unity TextMesh Pro:
+
+- layout matches to 0.02 units in 198 of 206 cases;
+- atlases differ by 0.05 to 0.90 of 255, depending on render mode;
+- rendered pixels differ by a median of 0.075 of 255 over 227 cases.
+
+Glow and bevel are fitted approximations. Web builds aren't supported yet because the
+Rust core doesn't target them. A label costs more than Godot's `Label` when its text
+changes every frame. [docs/parity.md](docs/parity.md) lists every known gap.
 
 ## Building
 
@@ -42,17 +46,57 @@ for the survey, architecture and milestone plan.
 python native/build.py      # builds the Rust core into addons/typesetter/bin
 ```
 
+CI also uploads the library for Windows, Linux and macOS as build artifacts.
+
+## API
+
+Classes and members follow TextMesh Pro's under new names, in snake_case.
+[docs/api-map.md](docs/api-map.md) has the full mapping.
+
+```gdscript
+var label := TypesetterLabel.new()
+label.font = load("res://fonts/inter.tres")
+label.font_size = 24.0
+label.set_text("Score: {0:2}", score)
+label.force_mesh_update()
+var size := label.get_preferred_values()
+```
+
+## Drawing without a node
+
+`TypesetterTextLayout` is for code that runs its own layout, such as a flex engine:
+
+```gdscript
+var style := TypesetterTextStyle.new()
+style.font = font_asset
+style.font_size = 16.0
+
+var layout := TypesetterTextLayout.new()
+layout.set_style(style)
+layout.set_text("Hello <b>world</b>")
+
+var size := layout.measure(Vector2(max_width, INF))  # fractional, never rounded
+layout.layout(Rect2(0, 0, width, height))
+layout.draw(get_canvas_item(), Transform2D(), Color.WHITE)
+```
+
+Sizes and positions are never rounded to whole pixels. `measure` returns the available
+width for wrapped text, as CSS `fit-content` does. If you change a style resource
+after setting it, call `invalidate()`.
+
 ## Validation
 
 `tools/unity-dump` is a Unity 6000.3 batchmode project that drives TextMesh Pro
-through its public API and records what it produces: textInfo, preferred and
-rendered values, generated atlases and PNG renders. Its output is committed
-under `bench/unity`, so comparisons run without Unity.
+through its public API and records what it produces: `textInfo`, preferred and rendered
+values, atlases, materials and PNG renders. Its output is committed under `bench/unity`,
+so comparisons run without Unity. [docs/parity.md](docs/parity.md) has the commands and
+results.
 
-```console
-python tools/make_cases.py               # regenerate bench/cases
-python tools/unity-dump/run.py --render  # regenerate bench/unity (needs Unity)
-```
+## Benchmarks
+
+`godot --path . -s res://tests/bench/benchmarks.gd` measures atlas generation, layout
+per 1,000 characters and per-frame cost against `Label`. On an Intel Xeon W-2135, layout
+takes 1.3 to 1.4 ms per 1,000 characters and an ASCII SDFAA atlas takes 8 ms.
 
 ## Inspiration and provenance
 
@@ -77,4 +121,5 @@ Typesetter is available under the [MIT License](LICENSE). Third-party software
 and fonts included in the repository remain subject to their own licenses:
 
 - [GUT](addons/gut/LICENSE.md) (MIT);
-- [Inter](tests/fonts/Inter-OFL.txt) (SIL Open Font License 1.1).
+- [Inter](tests/fonts/Inter-OFL.txt) (SIL Open Font License 1.1);
+- [Noto Sans JP](tests/fonts/NotoSansJP-OFL.txt) (SIL Open Font License 1.1), test subset.

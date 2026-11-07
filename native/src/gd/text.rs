@@ -114,7 +114,7 @@ impl FontProvider for GdFonts {
     fn face(&self, font: u32) -> FaceMetrics {
         let Some(a) = self.assets.get(font as usize) else { return FaceMetrics::default() };
         let b = a.bind();
-        let mut fm = FaceMetrics { point_size: 90.0, tab_size: b.tab_size, bold_spacing: b.bold_spacing, normal_spacing_offset: b.normal_spacing_offset, italic_style: b.italic_style, ..Default::default() };
+        let mut fm = FaceMetrics { point_size: 90.0, bold_style: b.bold_style, atlas_padding: b.atlas_padding as f32, tab_size: b.tab_size, bold_spacing: b.bold_spacing, normal_spacing_offset: b.normal_spacing_offset, italic_style: b.italic_style, ..Default::default() };
         if let Some(fi) = &b.face_info {
             let f = fi.bind();
             fm.point_size = f.point_size;
@@ -130,6 +130,7 @@ impl FontProvider for GdFonts {
             fm.underline_offset = f.underline_offset;
             fm.underline_thickness = f.underline_thickness;
             fm.strikethrough_offset = f.strikethrough_offset;
+            fm.strikethrough_thickness = f.strikethrough_thickness;
             fm.tab_width = f.tab_width;
         }
         fm
@@ -161,9 +162,15 @@ impl FontProvider for GdFonts {
     }
 
     fn kerning(&self, font: u32, left: u32, right: u32) -> Option<[f32; 8]> {
-        let a = self.assets.get(font as usize)?;
-        let b = a.bind();
-        b.rt.pairs.get(&(left, right)).copied()
+        let mut a = self.assets.get(font as usize)?.clone();
+        // Measured: TextMesh Pro reads new pairs from the font only for the text's
+        // primary font; <font> and fallback assets keep to their stored tables.
+        if font != 0 {
+            let stored = a.bind().rt.pairs.get(&(left, right)).copied();
+            return stored;
+        }
+        let pair = a.bind_mut().dynamic_pair(left, right);
+        pair
     }
 
     fn font_by_name(&mut self, name: &str) -> Option<u32> {
@@ -245,6 +252,7 @@ impl FontProvider for GdFonts {
                 ascent: g("ascent"),
                 descent: g("descent"),
                 tint: d.get("tint").and_then(|v| v.try_to::<bool>().ok()).unwrap_or(false),
+                color: None,
             });
         }
         None

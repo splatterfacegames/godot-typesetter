@@ -1,0 +1,24 @@
+{
+ "font": "Inter-Regular.ttf",
+ "component": "ugui",
+ "rect": [
+  500,
+  200
+ ],
+ "text": "Shader Rag",
+ "props": {
+  "fontSize": 72,
+  "alignment": "TopLeft",
+  "textWrappingMode": "NoWrap"
+ },
+ "material": {
+  "ID_UnderlayColor": "#FF3E8AFF",
+  "ID_UnderlayOffsetX": 0.5,
+  "ID_UnderlayOffsetY": -0.5,
+  "ID_UnderlaySoftness": 0.5
+ },
+ "shader": "TextMeshPro/Distance Field",
+ "keywords": [
+  "UNDERLAY_ON"
+ ]
+}

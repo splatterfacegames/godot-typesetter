@@ -153,7 +153,8 @@ vec4 ts_shade(vec2 uv, vec4 vcolor, vec4 custom0, float time) {
 	float ppt = ts_pixels_per_texel(uv, tex_size);
 	// Pixels per unit of normalised distance (the 0..1 range spans 2 × gradient_scale texels).
 	float scale = 2.0 * gradient_scale * ppt * (1.0 + sharpness) * TS_EDGE_RAMP;
-	float weight = (bold ? weight_bold : weight_normal) * 0.25;
+	// Fitted against TextMesh Pro renders (tests/render, tp_style_bold).
+	float weight = (bold ? weight_bold : weight_normal) * 0.125;
 	// Edge threshold after dilation (normalised units).
 	float bias = 0.5 - (face_dilate * 0.5 + weight) * scale_ratio_a;
 	float sd = (d - bias) * scale; // pixels, positive inside
@@ -174,7 +175,8 @@ vec4 ts_shade(vec2 uv, vec4 vcolor, vec4 custom0, float time) {
 	oc *= texture(outline_tex, ouv);
 #endif
 	oc.rgb *= oc.a;
-	float face_a = clamp((sd - ow) / (1.0 + softness) + 0.5, 0.0, 1.0);
+	// Softness acts on the outer edge only (measured: fx_outline_soft).
+	float face_a = clamp(sd - ow + 0.5, 0.0, 1.0);
 	float outer_a = clamp((sd + ow) / (1.0 + softness) + 0.5, 0.0, 1.0);
 	color = mix(oc, fc, ow > 0.0 ? face_a : 1.0) * outer_a;
 #else
@@ -193,11 +195,16 @@ vec4 ts_shade(vec2 uv, vec4 vcolor, vec4 custom0, float time) {
 		float h0 = clamp((d - bias + bevel_offset) / (w * scale_ratio_a), -1.0, 1.0);
 		if (bevel_type == 1) { h0 = 1.0 - abs(h0); }
 		float rnd = mix(1.0, sqrt(max(1.0 - h0 * h0, 0.0)), bevel_roundness);
-		vec3 n = normalize(vec3((dl - dr) * bevel * 8.0 * rnd, (du - dd) * bevel * 8.0 * rnd, 1.0 - bevel_clamp * 0.5));
+		// Only the band around the edge tilts; the rest of the face stays flat (fx_bevel).
+		float band = max(bevel_width, 0.01) * 0.5 * scale_ratio_a;
+		float tilt = bevel * 2.0 * rnd * (1.0 - smoothstep(band * 0.8, band, abs(d - bias + bevel_offset)));
+		vec3 n = normalize(vec3((dl - dr) * tilt, (du - dd) * tilt, 1.0 - bevel_clamp * 0.5));
 		vec3 light = normalize(vec3(sin(light_angle), cos(light_angle), 1.0));
-		float spec = pow(max(dot(n, normalize(light + vec3(0.0, 0.0, 1.0))), 0.0), reflectivity) * specular_power;
+		// Fitted to TextMesh Pro's renders (fx_bevel): a flat face takes dot(n, l) at the
+		// default diffuse, and specular only shows where the surface tilts to the light.
+		float spec = pow(max(reflect(-light, n).z, 0.0), reflectivity) * specular_power * min(tilt, 1.0);
 		float diff = max(dot(n, light), 0.0);
-		vec3 lit = color.rgb * mix(ambient, 1.0, diff * diffuse + (1.0 - diffuse)) + specular_color.rgb * spec * color.a;
+		vec3 lit = color.rgb * max(mix(1.0, diff, clamp(diffuse * 2.0, 0.0, 1.0)), ambient) + specular_color.rgb * spec * color.a;
 		vec3 refl = texture(cube, reflect(vec3(0.0, 0.0, -1.0), n)).rgb;
 		lit += refl * mix(reflect_outline_color.rgb, reflect_face_color.rgb, clamp(sd + 0.5, 0.0, 1.0)) * color.a;
 		color.rgb = lit;
@@ -213,25 +220,23 @@ vec4 ts_shade(vec2 uv, vec4 vcolor, vec4 custom0, float time) {
 		float ua = clamp((du - ub) * scale / (1.0 + us) + 0.5, 0.0, 1.0);
 		vec4 uc = underlay_color;
 		uc.a *= vcolor.a;
+		// An inner underlay is cut by the face edge and, like a normal one, sits behind
+		// the face: an opaque face hides it (measured: fx_underlay_inner).
 		if (underlay_type == 2) {
-			// Inner underlay: shadow inside the face, cut by the face edge.
 			ua = (1.0 - ua) * clamp(sd + 0.5, 0.0, 1.0);
-			uc.rgb *= uc.a;
-			color = color * (1.0 - uc.a * ua) + uc * ua * (1.0 - color.a) + vec4(uc.rgb * ua, 0.0) * color.a * 0.0;
-			color.rgb = mix(color.rgb, uc.rgb / max(uc.a, 1e-4) * color.a, uc.a * ua);
-		} else {
-			uc.rgb *= uc.a;
-			color = color + uc * ua * (1.0 - color.a);
 		}
+		uc.rgb *= uc.a;
+		color = color + uc * ua * (1.0 - color.a);
 	}
 #endif
 
 #ifdef TS_GLOW
 	if (glow_enabled) {
-		float gd = (d - (0.5 - glow_offset * 0.5 * scale_ratio_b)) * 2.0;
-		float span = gd >= 0.0 ? max(glow_inner * scale_ratio_b, 1e-3) : max(glow_outer * scale_ratio_b, 1e-3);
-		float g = clamp(1.0 - abs(gd) / span, 0.0, 1.0);
-		g = pow(g, 1.0 / max(glow_power, 1e-3));
+		// Fitted to TextMesh Pro's renders (fx_glow*): in pixels from the glow's centre,
+		// with half a pixel of extra span, fully on until about half way.
+		float gx = (d - (0.5 - glow_offset * 0.5 * scale_ratio_b)) * scale;
+		float span = (gx >= 0.0 ? glow_inner : glow_outer) * scale_ratio_b * 0.5 * scale;
+		float g = clamp(2.0 * (1.0 - pow(min(abs(gx) / (0.5 + span), 1.0), max(glow_power, 1e-3))), 0.0, 1.0);
 		vec4 gc = glow_color;
 		gc.a *= g * vcolor.a;
 		color.rgb = color.rgb + gc.rgb * gc.a;

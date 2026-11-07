@@ -336,22 +336,25 @@ impl Face {
         self.pair_adjustments_from(glyphs, true)
     }
 
-    /// Pair adjustments from the legacy `kern` table only (what TextMesh Pro's
-    /// runtime `TryAddCharacters(…, includeFontFeatures)` picks up; GPOS
-    /// kerning is read by the Font Asset Creator).
+    /// The pairs TextMesh Pro's runtime `TryAddCharacters(…, includeFontFeatures)`
+    /// picks up: GPOS `kern` lookups without lookup flags (measured: Noto Sans JP's
+    /// are read, Inter's IgnoreMarks lookup is not), else the legacy `kern` table.
     pub fn legacy_pair_adjustments(&self, glyphs: &[u32]) -> Vec<PairAdjustment> {
         self.pair_adjustments_from(glyphs, false)
     }
 
-    fn pair_adjustments_from(&self, glyphs: &[u32], use_gpos: bool) -> Vec<PairAdjustment> {
+    fn pair_adjustments_from(&self, glyphs: &[u32], flagged_lookups: bool) -> Vec<PairAdjustment> {
         let Ok(font) = self.font() else { return Vec::new() };
         let set: BTreeSet<u32> = glyphs.iter().copied().collect();
         let mut found: HashMap<(u32, u32), PairAdjustment> = HashMap::new();
-        let lookups = if use_gpos { Self::feature_lookups_gpos(&font, Tag::new(b"kern")) } else { BTreeSet::new() };
+        let lookups = Self::feature_lookups_gpos(&font, Tag::new(b"kern"));
         if let (Ok(gpos), false) = (font.gpos(), lookups.is_empty()) {
             if let Ok(ll) = gpos.lookup_list() {
                 for li in lookups {
                     let Ok(lookup) = ll.lookups().get(li as usize) else { continue };
+                    if !flagged_lookups && lookup.lookup_flag().to_bits() != 0 {
+                        continue;
+                    }
                     let Ok(PositionSubtables::Pair(subs)) = lookup.subtables() else { continue };
                     for sub in subs.iter().flatten() {
                         Self::collect_pairs(&sub, &set, &mut found);
