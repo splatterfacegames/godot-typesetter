@@ -80,8 +80,9 @@ compile and run but have no Unity comparison.
 
 **Not compared.** The Mobile and Bitmap shaders have no dedicated shader-feature
 cases. Default runtime-created Unity assets use the Mobile shader, and plain text
-renders identically under it and the full shader. The input field and editor tooling
-are covered by GUT or by hand, not by comparison with Unity.
+renders identically under it and the full shader. MSDF and MTSDF have no Unity
+equivalent to compare with. The input field is covered by GUT only. The editor tooling
+has not been exercised in a live editor session.
 
 `textInfo.spriteCount` differs on purpose. Unity reports 0 even with sprites in the
 text, and Typesetter reports the real number.
