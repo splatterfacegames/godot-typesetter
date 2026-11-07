@@ -2,7 +2,7 @@
 
 **Signed-distance-field text for Godot 4.7, with a TextMesh Pro-style API.**
 
-[Repository](https://github.com/jethac/godot-typesetter) · [MIT License](LICENSE)
+[Splatterface Games](https://www.splatterfacegames.com/) · [Repository](https://github.com/splatterfacegames/godot-typesetter) · [MIT License](LICENSE)
 
 Typesetter is a Godot-native text renderer modelled on TextMesh Pro's feature
 set. Its public API is meant to map one-to-one onto TextMesh Pro's under renamed
