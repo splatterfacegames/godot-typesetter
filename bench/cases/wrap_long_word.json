@@ -1,0 +1,14 @@
+{
+ "font": "Inter-Regular.ttf",
+ "component": "ugui",
+ "rect": [
+  200,
+  400
+ ],
+ "text": "Supercalifragilisticexpialidocious fits nowhere",
+ "props": {
+  "fontSize": 30,
+  "alignment": "TopLeft",
+  "textWrappingMode": "Normal"
+ }
+}

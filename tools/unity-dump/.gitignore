@@ -1,0 +1,17 @@
+# Unity regenerates everything except Assets/Editor, Packages/manifest.json and
+# ProjectSettings/ProjectVersion.txt. TextMesh Pro's essential resources are
+# imported into this black-box harness at run time and are never committed or read.
+/Library/
+/Temp/
+/Logs/
+/UserSettings/
+/obj/
+/Assets/*
+!/Assets/Editor/
+!/Assets/Editor/**
+/ProjectSettings/*
+!/ProjectSettings/ProjectVersion.txt
+/Packages/packages-lock.json
+*.csproj
+*.sln
+*.meta

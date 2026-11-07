@@ -1,0 +1,14 @@
+{
+ "font": "Inter-Regular.ttf",
+ "component": "ugui",
+ "rect": [
+  800,
+  120
+ ],
+ "text": "AVATAR To WAVE Yo! LT",
+ "props": {
+  "fontSize": 48,
+  "alignment": "TopLeft",
+  "textWrappingMode": "NoWrap"
+ }
+}

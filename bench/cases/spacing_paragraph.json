@@ -1,0 +1,14 @@
+{
+ "font": "Inter-Regular.ttf",
+ "component": "ugui",
+ "rect": [
+  400,
+  300
+ ],
+ "text": "First paragraph here.\nSecond one.\nThird.",
+ "props": {
+  "fontSize": 24,
+  "alignment": "TopLeft",
+  "paragraphSpacing": 25
+ }
+}

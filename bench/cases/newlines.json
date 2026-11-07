@@ -1,0 +1,13 @@
+{
+ "font": "Inter-Regular.ttf",
+ "component": "ugui",
+ "rect": [
+  500,
+  300
+ ],
+ "text": "Line one\nLine two\n\nLine four",
+ "props": {
+  "fontSize": 30,
+  "alignment": "TopLeft"
+ }
+}

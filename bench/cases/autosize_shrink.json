@@ -1,0 +1,17 @@
+{
+ "font": "Inter-Regular.ttf",
+ "component": "ugui",
+ "rect": [
+  300,
+  120
+ ],
+ "text": "The quick brown fox jumps over the lazy dog. Pack my box with five dozen liquor jugs! Sphinx of black quartz, judge my vow; how vexingly quick daft zebras jump.",
+ "props": {
+  "fontSize": 36,
+  "alignment": "TopLeft",
+  "enableAutoSizing": true,
+  "fontSizeMin": 8,
+  "fontSizeMax": 72,
+  "textWrappingMode": "Normal"
+ }
+}

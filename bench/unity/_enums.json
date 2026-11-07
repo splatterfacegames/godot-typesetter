@@ -1,0 +1,165 @@
+{
+  "GlyphRenderMode": {
+    "DEFAULT": 0,
+    "SMOOTH": 4117,
+    "RASTER": 4118,
+    "SMOOTH_HINTED": 4121,
+    "RASTER_HINTED": 4122,
+    "SDF": 4134,
+    "SDFAA": 4165,
+    "SDFAA_HINTED": 4169,
+    "SDF8": 8230,
+    "SDF16": 16422,
+    "SDF32": 32806,
+    "COLOR": 69652,
+    "COLOR_HINTED": 69656
+  },
+  "TextAlignmentOptions": {
+    "TopLeft": 257,
+    "Top": 258,
+    "TopRight": 260,
+    "TopJustified": 264,
+    "TopFlush": 272,
+    "TopGeoAligned": 288,
+    "Left": 513,
+    "Center": 514,
+    "Right": 516,
+    "Justified": 520,
+    "Flush": 528,
+    "CenterGeoAligned": 544,
+    "BottomLeft": 1025,
+    "Bottom": 1026,
+    "BottomRight": 1028,
+    "BottomJustified": 1032,
+    "BottomFlush": 1040,
+    "BottomGeoAligned": 1056,
+    "BaselineLeft": 2049,
+    "Baseline": 2050,
+    "BaselineRight": 2052,
+    "BaselineJustified": 2056,
+    "BaselineFlush": 2064,
+    "BaselineGeoAligned": 2080,
+    "MidlineLeft": 4097,
+    "Midline": 4098,
+    "MidlineRight": 4100,
+    "MidlineJustified": 4104,
+    "MidlineFlush": 4112,
+    "MidlineGeoAligned": 4128,
+    "CaplineLeft": 8193,
+    "Capline": 8194,
+    "CaplineRight": 8196,
+    "CaplineJustified": 8200,
+    "CaplineFlush": 8208,
+    "CaplineGeoAligned": 8224,
+    "Converted": 65535
+  },
+  "HorizontalAlignmentOptions": {
+    "Left": 1,
+    "Center": 2,
+    "Right": 4,
+    "Justified": 8,
+    "Flush": 16,
+    "Geometry": 32
+  },
+  "VerticalAlignmentOptions": {
+    "Top": 256,
+    "Middle": 512,
+    "Bottom": 1024,
+    "Baseline": 2048,
+    "Geometry": 4096,
+    "Capline": 8192
+  },
+  "TextOverflowModes": {
+    "Overflow": 0,
+    "Ellipsis": 1,
+    "Masking": 2,
+    "Truncate": 3,
+    "ScrollRect": 4,
+    "Page": 5,
+    "Linked": 6
+  },
+  "FontStyles": {
+    "Normal": 0,
+    "Bold": 1,
+    "Italic": 2,
+    "Underline": 4,
+    "LowerCase": 8,
+    "UpperCase": 16,
+    "SmallCaps": 32,
+    "Strikethrough": 64,
+    "Superscript": 128,
+    "Subscript": 256,
+    "Highlight": 512
+  },
+  "FontWeight": {
+    "Thin": 100,
+    "ExtraLight": 200,
+    "Light": 300,
+    "Regular": 400,
+    "Medium": 500,
+    "SemiBold": 600,
+    "Bold": 700,
+    "Heavy": 800,
+    "Black": 900
+  },
+  "TextureMappingOptions": {
+    "Character": 0,
+    "Line": 1,
+    "Paragraph": 2,
+    "MatchAspect": 3
+  },
+  "AtlasPopulationMode": {
+    "Static": 0,
+    "Dynamic": 1,
+    "DynamicOS": 2
+  },
+  "TMP_TextElementType": {
+    "Character": 0,
+    "Sprite": 1
+  },
+  "TextRenderFlags": {
+    "DontRender": 0,
+    "Render": 255
+  },
+  "TMP_VertexDataUpdateFlags": {
+    "None": 0,
+    "Vertices": 1,
+    "Uv0": 2,
+    "Uv2": 4,
+    "Uv4": 8,
+    "Colors32": 16,
+    "All": 255
+  },
+  "VertexSortingOrder": {
+    "Normal": 0,
+    "Reverse": 1
+  },
+  "MaskingTypes": {
+    "MaskOff": 0,
+    "MaskHard": 1,
+    "MaskSoft": 2
+  },
+  "TagUnitType": {
+    "Pixels": 0,
+    "FontUnits": 1,
+    "Percentage": 2
+  },
+  "TagValueType": {
+    "None": 0,
+    "NumericalValue": 1,
+    "StringValue": 2,
+    "ColorValue": 4
+  },
+  "ColorMode": {
+    "Single": 0,
+    "HorizontalGradient": 1,
+    "VerticalGradient": 2,
+    "FourCornersGradient": 3
+  },
+  "TextWrappingModes": {
+    "NoWrap": 0,
+    "Normal": 1,
+    "PreserveWhitespace": 2,
+    "PreserveWhitespaceNoWrap": 3
+  }
+}

@@ -1,0 +1,16 @@
+.godot/
+.import/
+*.import
+*.uid
+/export.cfg
+/dist/
+/.wrangler/
+/node_modules/
+/.dev.vars
+.mono/
+*.tmp
+.DS_Store
+/native/target/
+/addons/typesetter/bin/
+/bench/results/
+__pycache__/

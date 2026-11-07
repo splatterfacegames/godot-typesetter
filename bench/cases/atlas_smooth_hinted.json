@@ -1,0 +1,24 @@
+{
+ "font": "Inter-Regular.ttf",
+ "component": "ugui",
+ "rect": [
+  400,
+  100
+ ],
+ "text": "AVg@",
+ "props": {
+  "fontSize": 48,
+  "alignment": "TopLeft",
+  "textWrappingMode": "NoWrap"
+ },
+ "asset": {
+  "pointSize": 48,
+  "padding": 5,
+  "renderMode": "SMOOTH_HINTED",
+  "atlas": [
+   512,
+   512
+  ],
+  "characters": " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"
+ }
+}

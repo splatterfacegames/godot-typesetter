@@ -1,0 +1,17 @@
+{
+ "font": "Inter-Regular.ttf",
+ "component": "ugui",
+ "rect": [
+  300,
+  120
+ ],
+ "text": "Hi",
+ "props": {
+  "fontSize": 36,
+  "alignment": "TopLeft",
+  "enableAutoSizing": true,
+  "fontSizeMin": 8,
+  "fontSizeMax": 200,
+  "textWrappingMode": "Normal"
+ }
+}

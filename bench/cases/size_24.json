@@ -1,0 +1,14 @@
+{
+ "font": "Inter-Regular.ttf",
+ "component": "ugui",
+ "rect": [
+  1200,
+  200
+ ],
+ "text": "Sphinx of black quartz",
+ "props": {
+  "fontSize": 24,
+  "alignment": "TopLeft",
+  "textWrappingMode": "NoWrap"
+ }
+}

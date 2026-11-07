@@ -1,0 +1,14 @@
+{
+ "font": "Inter-Regular.ttf",
+ "component": "ugui",
+ "rect": [
+  700,
+  200
+ ],
+ "text": "<b>Bold</b> <i>Italic</i> <u>Under</u> <s>Strike</s> <size=50>Big</size> <color=#FF0000>Red</color>",
+ "props": {
+  "fontSize": 30,
+  "alignment": "TopLeft",
+  "textWrappingMode": "Normal"
+ }
+}
