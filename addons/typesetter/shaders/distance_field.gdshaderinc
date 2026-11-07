@@ -6,6 +6,8 @@
 // derivatives of the atlas UV, so edges stay one pixel wide at any scale,
 // rotation or perspective, in 2D and 3D.
 //
+// The variant defines TS_TEX: the atlas sampler (TEXTURE in 2D, main_tex in 3D).
+//
 // Feature defines (set by the variant shader):
 //   TS_OUTLINE TS_UNDERLAY TS_GLOW TS_BEVEL TS_TEXTURES TS_MASK TS_MTSDF_EDGE
 
@@ -95,7 +97,11 @@ uniform float vertex_offset_y = 0.0;
 
 // --- masking (Masking overflow, ScrollRect): node-space rect and soft edge
 #ifdef TS_MASK
+#ifdef TS_INSTANCE_MASK
+instance uniform vec4 clip_rect = vec4(-32767.0, -32767.0, 32767.0, 32767.0);
+#else
 uniform vec4 clip_rect = vec4(-32767.0, -32767.0, 32767.0, 32767.0);
+#endif
 uniform float mask_softness_x = 0.0;
 uniform float mask_softness_y = 0.0;
 #endif
@@ -110,8 +116,8 @@ float ts_pixels_per_texel(vec2 uv, vec2 tex_size) {
 
 /// Distance sample (0..1, 0.5 on the edge). MTSDF atlases use the median of
 /// RGB for the face edge; single-channel atlases store distance in red.
-float ts_sample(sampler2D tex, vec2 uv) {
-	vec4 s = texture(tex, uv);
+float ts_sample(vec2 uv) {
+	vec4 s = texture(TS_TEX, uv);
 #ifdef TS_MTSDF_EDGE
 	return max(min(s.r, s.g), min(max(s.r, s.g), s.b));
 #else
@@ -119,8 +125,8 @@ float ts_sample(sampler2D tex, vec2 uv) {
 #endif
 }
 
-float ts_sample_true(sampler2D tex, vec2 uv) {
-	vec4 s = texture(tex, uv);
+float ts_sample_true(vec2 uv) {
+	vec4 s = texture(TS_TEX, uv);
 #ifdef TS_MTSDF_EDGE
 	return s.a;
 #else
@@ -134,11 +140,11 @@ struct TsResult {
 };
 
 /// Shades one fragment. `custom0` = (face_u, face_v, scale, flags).
-vec4 ts_shade(sampler2D tex, vec2 uv, vec4 vcolor, vec4 custom0, float time) {
-	vec2 tex_size = vec2(textureSize(tex, 0));
+vec4 ts_shade(vec2 uv, vec4 vcolor, vec4 custom0, float time) {
+	vec2 tex_size = vec2(textureSize(TS_TEX, 0));
 	float flags = custom0.w;
 	bool bold = mod(flags, 2.0) >= 1.0;
-	float d = ts_sample(tex, uv);
+	float d = ts_sample(uv);
 	float ppt = ts_pixels_per_texel(uv, tex_size);
 	// Pixels per unit of normalised distance (the 0..1 range spans 2 × gradient_scale texels).
 	float scale = 2.0 * gradient_scale * ppt * (1.0 + sharpness);
@@ -176,8 +182,8 @@ vec4 ts_shade(sampler2D tex, vec2 uv, vec4 vcolor, vec4 custom0, float time) {
 		// Surface normal from the distance-field gradient.
 		vec2 e = vec2(1.0 / tex_size.x, 0.0);
 		vec2 f = vec2(0.0, 1.0 / tex_size.y);
-		float dl = ts_sample_true(tex, uv - e), dr = ts_sample_true(tex, uv + e);
-		float dd = ts_sample_true(tex, uv - f), du = ts_sample_true(tex, uv + f);
+		float dl = ts_sample_true(uv - e), dr = ts_sample_true(uv + e);
+		float dd = ts_sample_true(uv - f), du = ts_sample_true(uv + f);
 		float w = max(bevel_width + 0.5, 0.01);
 		float h0 = clamp((d - bias + bevel_offset) / (w * scale_ratio_a), -1.0, 1.0);
 		if (bevel_type == 1) { h0 = 1.0 - abs(h0); }
@@ -196,7 +202,7 @@ vec4 ts_shade(sampler2D tex, vec2 uv, vec4 vcolor, vec4 custom0, float time) {
 #ifdef TS_UNDERLAY
 	if (underlay_type > 0) {
 		vec2 off = vec2(underlay_offset_x, -underlay_offset_y) * gradient_scale * scale_ratio_c / tex_size;
-		float du = ts_sample_true(tex, uv - off);
+		float du = ts_sample_true(uv - off);
 		float ub = 0.5 - underlay_dilate * 0.5 * scale_ratio_c;
 		float us = underlay_softness * scale_ratio_c * scale;
 		float ua = clamp((du - ub) * scale / (1.0 + us) + 0.5, 0.0, 1.0);

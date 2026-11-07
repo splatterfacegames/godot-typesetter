@@ -28,6 +28,10 @@ pub struct GdFonts {
     pub gradients: HashMap<String, [[f32; 4]; 4]>,
     pub sprites: Vec<Gd<Resource>>,
     pub allow_dynamic: bool,
+    /// TMP_Settings.missingGlyphCharacter (0: none).
+    pub missing_glyph: u32,
+    /// Code points not found in any font asset.
+    pub missing: Vec<u32>,
 }
 
 impl GdFonts {
@@ -43,6 +47,8 @@ impl GdFonts {
             gradients: HashMap::new(),
             sprites: Vec::new(),
             allow_dynamic: true,
+            missing_glyph: 0,
+            missing: Vec::new(),
         };
         f.register(primary);
         f
@@ -143,6 +149,14 @@ impl FontProvider for GdFonts {
                 return Some((id, g));
             }
         }
+        if cp != 0x25A1 && cp != '?' as u32 && cp != self.missing_glyph {
+            if !self.missing.contains(&cp) {
+                self.missing.push(cp);
+            }
+            if self.missing_glyph != 0 {
+                return self.glyph(font, self.missing_glyph);
+            }
+        }
         None
     }
 
@@ -197,6 +211,20 @@ impl FontProvider for GdFonts {
             let Ok(d) = d.try_to::<VarDictionary>() else { continue };
             if d.is_empty() {
                 continue;
+            }
+            // The sprite may come from a fallback sprite asset: register it so the
+            // surface samples the right sheet.
+            let mut ai = ai;
+            if let Some(found) = d.get("asset").and_then(|v| v.try_to::<Gd<Resource>>().ok()) {
+                if found.instance_id() != res.instance_id() {
+                    ai = match self.sprites.iter().position(|s| s.instance_id() == found.instance_id()) {
+                        Some(i) => i,
+                        None => {
+                            self.sprites.push(found);
+                            self.sprites.len() - 1
+                        }
+                    };
+                }
             }
             let g = |k: &str| d.get(k).and_then(|v| v.try_to::<f32>().ok()).unwrap_or(0.0);
             let rect = d.get("rect").and_then(|v| v.try_to::<Rect2>().ok()).unwrap_or_default();
@@ -361,8 +389,38 @@ pub struct TypesetterTextCore {
     /// Extra horizontal offset for line/paragraph face mapping (TMP mappingUvLineOffset).
     #[var]
     pub mapping_uv_line_offset: f32,
+    /// Markup wrapped around the text (TMP textStyle); character indices stay
+    /// relative to `text`.
+    #[var]
+    pub text_style_opening: GString,
+    #[var]
+    pub text_style_closing: GString,
+    /// Substitute for characters missing from every font asset (0: U+25A1, then '?').
+    #[var]
+    pub missing_glyph_character: i64,
+    /// CJK line-breaking rules: characters that may not start / end a line.
+    #[var]
+    pub leading_characters: GString,
+    #[var]
+    pub following_characters: GString,
+    /// Ignore `<color>` tags (TMP overrideColorTags).
+    #[var]
+    pub override_color_tags: bool,
+    /// Multiply sprites by the text colour (TMP tintAllSprites).
+    #[var]
+    pub tint_all_sprites: bool,
+    /// With max_visible_*, align vertically on the visible lines (TMP useMaxVisibleDescender).
+    #[var]
+    pub use_max_visible_descender: bool,
+    /// OpenType features: 1 kern, 2 liga, 4 mark, 8 mkmk.
+    #[var]
+    pub font_features: i32,
+    /// VertexSortingOrder: 0 normal, 1 reverse.
+    #[var]
+    pub geometry_sorting_order: i32,
 
     pub layout: Option<Layout>,
+    pub missing: Vec<(u32, i32)>,
     pub fonts: Option<GdFonts>,
     pub info_cache: Option<Gd<TypesetterTextInfo>>,
     pub dirty: bool,
@@ -417,7 +475,18 @@ impl IRefCounted for TypesetterTextCore {
             horizontal_mapping: 0,
             vertical_mapping: 0,
             mapping_uv_line_offset: 0.0,
+            text_style_opening: GString::new(),
+            text_style_closing: GString::new(),
+            missing_glyph_character: 0,
+            leading_characters: GString::new(),
+            following_characters: GString::new(),
+            override_color_tags: false,
+            tint_all_sprites: false,
+            use_max_visible_descender: true,
+            font_features: 3,
+            geometry_sorting_order: 0,
             layout: None,
+            missing: Vec::new(),
             fonts: None,
             info_cache: None,
             dirty: true,
@@ -467,12 +536,51 @@ impl TypesetterTextCore {
             }
         }
         fonts.sprites = self.sprite_assets.iter_shared().collect();
+        fonts.missing_glyph = self.missing_glyph_character.max(0) as u32;
         let s = self.settings();
-        let text = self.text.to_string();
-        let l = layout::layout(&text, &s, &mut fonts);
+        let opening = self.text_style_opening.to_string();
+        let closing = self.text_style_closing.to_string();
+        let src = self.text.to_string();
+        let text = if opening.is_empty() && closing.is_empty() { src.clone() } else { format!("{opening}{src}{closing}") };
+        let mut l = layout::layout(&text, &s, &mut fonts);
+        // Character indices refer to `text`, not to the style markup around it.
+        if !opening.is_empty() {
+            let off = opening.chars().count() as i32;
+            for c in l.characters.iter_mut() {
+                c.index = (c.index - off).max(0);
+            }
+        }
+        if self.override_color_tags {
+            let col = c4(self.color);
+            for c in l.characters.iter_mut() {
+                c.color = [col[0], col[1], col[2], c.color[3]];
+            }
+        }
+        if self.tint_all_sprites {
+            for c in l.characters.iter_mut() {
+                if let Some(sp) = c.sprite.as_mut() {
+                    sp.tint = true;
+                }
+            }
+        }
+        self.missing = fonts
+            .missing
+            .iter()
+            .map(|&cp| {
+                let idx = src.chars().position(|ch| ch as u32 == cp).map(|i| i as i32).unwrap_or(-1);
+                (cp, idx)
+            })
+            .collect();
         self.layout = Some(l);
         self.fonts = Some(fonts);
         self.dirty = false;
+    }
+
+    /// Characters missing from every font asset in the last layout, as
+    /// [unicode, string index, unicode, string index, …].
+    #[func]
+    pub fn get_missing_characters(&self) -> PackedInt32Array {
+        self.missing.iter().flat_map(|&(cp, i)| [cp as i32, i]).collect()
     }
 
     #[func]
@@ -644,7 +752,12 @@ impl TypesetterTextCore {
         let mut out: Array<VarDictionary> = Array::new();
         let Some(l) = self.layout.as_ref() else { return out };
         let Some(fonts) = self.fonts.as_ref() else { return out };
-        let quads = super::mesh::build_quads(l, self);
+        let mut quads = super::mesh::build_quads(l, self);
+        if self.geometry_sorting_order == 1 {
+            for q in quads.values_mut() {
+                reverse_quads(q);
+            }
+        }
         for (si, (key, q)) in quads.into_iter().enumerate() {
             let arrays = super::mesh::to_arrays(&q, !self.world_space);
             let fmt = super::mesh::format(!self.world_space);
@@ -675,6 +788,30 @@ impl TypesetterTextCore {
             }
             d.set("vertex_count", q.positions.len() as i64);
             d.set("kind", key.kind as i64);
+            out.push(&d);
+        }
+        out
+    }
+
+    /// Builds every surface into one ArrayMesh (3D text: one mesh, one material
+    /// per surface). Returns the same per-surface dictionaries as `build_meshes`
+    /// with "surface" set to the surface index instead of "mesh".
+    #[func]
+    pub fn build_mesh(&mut self, mut mesh: Gd<ArrayMesh>) -> Array<VarDictionary> {
+        mesh.clear_surfaces();
+        let dicts = self.build_meshes(Array::new());
+        let mut out: Array<VarDictionary> = Array::new();
+        for mut d in dicts.iter_shared() {
+            let Some(m) = d.get("mesh").and_then(|v| v.try_to::<Gd<ArrayMesh>>().ok()) else { continue };
+            if m.get_surface_count() == 0 {
+                continue;
+            }
+            let arrays = m.surface_get_arrays(0);
+            let fmt = m.surface_get_format(0);
+            let si = mesh.get_surface_count();
+            mesh.add_surface_from_arrays_ex(PrimitiveType::TRIANGLES, &arrays).flags(fmt).done();
+            d.remove("mesh");
+            d.set("surface", si as i64);
             out.push(&d);
         }
         out
@@ -762,7 +899,7 @@ impl TypesetterTextCore {
             right_to_left: self.is_right_to_left_text,
             extra_padding: self.extra_padding,
             padding: self.mesh_padding,
-            kerning: self.enable_kerning,
+            kerning: self.enable_kerning && (self.font_features & 1) != 0,
         }
     }
 
@@ -772,6 +909,29 @@ impl TypesetterTextCore {
     }
 }
 
+
+fn reverse_quads(q: &mut super::mesh::Quads) {
+    let n = q.positions.len() / 4;
+    let rev4 = |v: &mut Vec<[f32; 4]>| {
+        let mut out = Vec::with_capacity(v.len());
+        for k in (0..n).rev() {
+            out.extend_from_slice(&v[k * 4..k * 4 + 4]);
+        }
+        *v = out;
+    };
+    let mut p = Vec::with_capacity(q.positions.len());
+    let mut u = Vec::with_capacity(q.uvs.len());
+    for k in (0..n).rev() {
+        p.extend_from_slice(&q.positions[k * 4..k * 4 + 4]);
+        u.extend_from_slice(&q.uvs[k * 4..k * 4 + 4]);
+    }
+    q.positions = p;
+    q.uvs = u;
+    rev4(&mut q.colors);
+    rev4(&mut q.custom0);
+    rev4(&mut q.custom1);
+    q.owners.reverse();
+}
 
 // Silence unused import warnings for types only referenced in docs.
 #[allow(dead_code)]

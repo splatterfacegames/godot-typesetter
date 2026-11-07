@@ -1,0 +1,131 @@
+@tool
+@icon("res://addons/typesetter/icons/typesetter_text_3d.svg")
+class_name TypesetterText3D
+extends GeometryInstance3D
+## Signed-distance-field text in 3D space (TextMeshPro).
+##
+## Lays out rich text inside a `rect_size` rectangle around `pivot`, in units
+## where font size 10 is one unit tall (TMP's world-space scale), and draws it
+## with Typesetter's distance-field shaders: sharp at any distance, angle or
+## perspective. The API follows TextMesh Pro's TMP_Text one-to-one in
+## snake_case; see docs/api-map.md.
+## TMP: TextMeshPro
+
+#@group Container
+#@prop rect_size: Vector2 = Vector2(20, 5) | @export | layout | - | rectTransform.sizeDelta | Size of the text container in node units.
+#@prop pivot: Vector2 = Vector2(0.5, 0.5) | @export | layout | - | rectTransform.pivot | Point of the container placed at the node origin (0–1).
+#@group Rendering
+#@prop is_overlay: bool = false | @export | material | - | isOverlay | Draws on top of other geometry (Overlay shader, no depth test).
+#@prop sorting_order: int = 0 | @export | material | - | sortingOrder | Order among transparent objects (maps to `sorting_offset`).
+#@prop is_volumetric_text: bool = false | - | none | - | isVolumetricText | Accepted for compatibility; text is planar.
+
+# @@COMMON@@
+
+var _ts_mesh: ArrayMesh = ArrayMesh.new()
+
+
+func _init() -> void:
+	_ts_core.world_space = true
+	set_base(_ts_mesh.get_rid())
+
+
+func _ts_property_hook(prop: StringName) -> void:
+	if prop == &"sorting_order":
+		sorting_offset = sorting_order
+
+
+func _notification(what: int) -> void:
+	match what:
+		NOTIFICATION_ENTER_TREE:
+			set_base(_ts_mesh.get_rid())
+			_ts_set_layout_dirty()
+		NOTIFICATION_VISIBILITY_CHANGED:
+			if is_visible_in_tree() and (_ts_dirty_layout or _ts_dirty_vertices or _ts_dirty_material):
+				_ts_queue_update()
+
+
+func _get_aabb() -> AABB:
+	return _ts_mesh.get_aabb()
+
+
+func _ts_apply_auto_size_container() -> void:
+	var p := _ts_make_core(_ts_source_text()).get_preferred_values(INF, INF)
+	if not p.is_equal_approx(rect_size):
+		rect_size = p
+
+
+func _ts_is_3d() -> bool:
+	return true
+
+
+func _ts_overlay() -> bool:
+	return is_overlay
+
+
+func _ts_is_visible() -> bool:
+	return is_visible_in_tree()
+
+
+func _ts_container_size() -> Vector2:
+	return rect_size
+
+
+func _ts_container_pivot() -> Vector2:
+	return pivot
+
+
+func _ts_build_meshes_impl() -> Array[Dictionary]:
+	var dicts := _ts_core.build_mesh(_ts_mesh)
+	var out: Array[Dictionary] = []
+	for d in dicts:
+		out.append(d)
+	return out
+
+
+func _ts_present() -> void:
+	for s in _ts_surfaces:
+		var i: int = s.surface
+		if i < _ts_mesh.get_surface_count():
+			_ts_mesh.surface_set_material(i, s.get("material_used"))
+	var masked := overflow_mode == TextOverflowModes.MASKING
+	var r := Vector4(-32767, -32767, 32767, 32767)
+	if masked:
+		var x0 := -rect_size.x * pivot.x + margin.x
+		var y0 := -rect_size.y * pivot.y + margin.w
+		r = Vector4(x0, y0, -rect_size.x * pivot.x + rect_size.x - margin.z, -rect_size.y * pivot.y + rect_size.y - margin.y)
+	set_instance_shader_parameter(&"clip_rect", r)
+	_ts_apply_tint()
+	update_gizmos()
+
+
+func _ts_clear_geometry() -> void:
+	_ts_mesh.clear_surfaces()
+
+
+func _ts_apply_tint() -> void:
+	set_instance_shader_parameter(&"ts_tint", _ts_tint)
+
+
+func _ts_get_mesh_impl() -> Mesh:
+	return _ts_mesh
+
+
+func _ts_replace_surface_mesh(_index: int, new_mesh: Mesh) -> void:
+	if new_mesh is ArrayMesh:
+		_ts_mesh = new_mesh
+		set_base(_ts_mesh.get_rid())
+		_ts_present()
+
+
+func _ts_update_vertex_data_impl() -> void:
+	var meshes: Array[ArrayMesh] = []
+	for s in _ts_surfaces:
+		meshes.append(ArrayMesh.new())
+	_ts_core.update_vertex_data(meshes)
+	_ts_mesh.clear_surfaces()
+	for i in meshes.size():
+		var m := meshes[i]
+		if m.get_surface_count() > 0:
+			_ts_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, m.surface_get_arrays(0), [], {}, m.surface_get_format(0))
+			_ts_surfaces[i]["surface"] = _ts_mesh.get_surface_count() - 1
+	_ts_present()

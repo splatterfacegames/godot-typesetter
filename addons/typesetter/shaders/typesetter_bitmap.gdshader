@@ -13,9 +13,11 @@ uniform float mask_softness_y = 0.0;
 
 varying vec4 v_custom0;
 varying vec2 v_local;
+varying vec4 v_color;
 
 void vertex() {
 	v_custom0 = CUSTOM0;
+	v_color = COLOR;
 	v_local = VERTEX;
 }
 
@@ -23,11 +25,11 @@ void fragment() {
 	float flags = v_custom0.w;
 	vec4 c;
 	if (mod(floor(flags / 4.0), 2.0) >= 1.0) {
-		c = COLOR;
+		c = v_color;
 	} else if (mod(floor(flags / 2.0), 2.0) >= 1.0) {
-		c = texture(TEXTURE, UV) * COLOR;
+		c = texture(TEXTURE, UV) * v_color;
 	} else {
-		c = face_color * COLOR * texture(face_tex, v_custom0.xy * face_tex_tiling + face_tex_offset);
+		c = face_color * v_color * texture(face_tex, v_custom0.xy * face_tex_tiling + face_tex_offset);
 		c.a *= texture(TEXTURE, UV).r;
 	}
 	vec2 soft = max(vec2(mask_softness_x, mask_softness_y), vec2(1e-4));

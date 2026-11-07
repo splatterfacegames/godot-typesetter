@@ -8,8 +8,12 @@ uniform vec4 face_color : source_color = vec4(1.0);
 uniform sampler2D face_tex : source_color, hint_default_white, repeat_enable;
 uniform vec2 face_tex_tiling = vec2(1.0);
 uniform vec2 face_tex_offset = vec2(0.0);
+/// Per-node tint (cross_fade_color / cross_fade_alpha).
+instance uniform vec4 ts_tint = vec4(1.0);
+instance uniform vec4 clip_rect = vec4(-32767.0, -32767.0, 32767.0, 32767.0);
 
 varying vec4 v_custom0;
+varying vec2 v_local;
 
 vec3 ts_to_linear(vec3 c) {
 	return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), c));
@@ -17,10 +21,11 @@ vec3 ts_to_linear(vec3 c) {
 
 void vertex() {
 	v_custom0 = CUSTOM0;
+	v_local = VERTEX.xy;
 }
 
 void fragment() {
-	vec4 vc = COLOR;
+	vec4 vc = COLOR * ts_tint;
 	if (!OUTPUT_IS_SRGB) {
 		vc.rgb = ts_to_linear(vc.rgb);
 	}
@@ -33,6 +38,9 @@ void fragment() {
 	} else {
 		c = face_color * vc * texture(face_tex, v_custom0.xy * face_tex_tiling + face_tex_offset);
 		c.a *= texture(main_tex, UV).r;
+	}
+	if (any(lessThan(v_local, clip_rect.xy)) || any(greaterThan(v_local, clip_rect.zw))) {
+		discard;
 	}
 	ALBEDO = c.rgb * c.a;
 	ALPHA = c.a;

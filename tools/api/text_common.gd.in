@@ -1,0 +1,850 @@
+# ---------------------------------------------------------------------------
+# TMP_Text API shared by TypesetterLabel and TypesetterText3D.
+# Generated from tools/api/text_common.gd.in by tools/make_api.py; edit there.
+# ---------------------------------------------------------------------------
+
+## Emitted after the text is laid out and its geometry built, before it is
+## drawn. Edit `text_info.mesh_info` here and call `update_vertex_data()` to
+## animate vertices.
+## TMP: OnPreRenderText
+signal pre_render_text(text_info: TypesetterTextInfo)
+## Emitted when `text` changes.
+## TMP: TMPro_EventManager.TEXT_CHANGED_EVENT
+signal text_changed()
+
+## TMP: FontStyles
+enum FontStyles { NORMAL = 0, BOLD = 1, ITALIC = 2, UNDERLINE = 4, LOWER_CASE = 8, UPPER_CASE = 16, SMALL_CAPS = 32, STRIKETHROUGH = 64, SUPERSCRIPT = 128, SUBSCRIPT = 256, HIGHLIGHT = 512 }
+## TMP: FontWeight
+enum FontWeight { THIN = 100, EXTRA_LIGHT = 200, LIGHT = 300, REGULAR = 400, MEDIUM = 500, SEMI_BOLD = 600, BOLD = 700, HEAVY = 800, BLACK = 900 }
+## TMP: HorizontalAlignmentOptions
+enum HorizontalAlignmentOptions { LEFT = 0x1, CENTER = 0x2, RIGHT = 0x4, JUSTIFIED = 0x8, FLUSH = 0x10, GEOMETRY = 0x20 }
+## TMP: VerticalAlignmentOptions
+enum VerticalAlignmentOptions { TOP = 0x100, MIDDLE = 0x200, BOTTOM = 0x400, BASELINE = 0x800, GEOMETRY = 0x1000, CAPLINE = 0x2000 }
+## TMP: TextAlignmentOptions
+enum TextAlignmentOptions {
+	TOP_LEFT = 0x101, TOP = 0x102, TOP_RIGHT = 0x104, TOP_JUSTIFIED = 0x108, TOP_FLUSH = 0x110, TOP_GEO_ALIGNED = 0x120,
+	LEFT = 0x201, CENTER = 0x202, RIGHT = 0x204, JUSTIFIED = 0x208, FLUSH = 0x210, CENTER_GEO_ALIGNED = 0x220,
+	BOTTOM_LEFT = 0x401, BOTTOM = 0x402, BOTTOM_RIGHT = 0x404, BOTTOM_JUSTIFIED = 0x408, BOTTOM_FLUSH = 0x410, BOTTOM_GEO_ALIGNED = 0x420,
+	BASELINE_LEFT = 0x801, BASELINE = 0x802, BASELINE_RIGHT = 0x804, BASELINE_JUSTIFIED = 0x808, BASELINE_FLUSH = 0x810, BASELINE_GEO_ALIGNED = 0x820,
+	MIDLINE_LEFT = 0x1001, MIDLINE = 0x1002, MIDLINE_RIGHT = 0x1004, MIDLINE_JUSTIFIED = 0x1008, MIDLINE_FLUSH = 0x1010, MIDLINE_GEO_ALIGNED = 0x1020,
+	CAPLINE_LEFT = 0x2001, CAPLINE = 0x2002, CAPLINE_RIGHT = 0x2004, CAPLINE_JUSTIFIED = 0x2008, CAPLINE_FLUSH = 0x2010, CAPLINE_GEO_ALIGNED = 0x2020,
+	CONVERTED = 0xFFFF,
+}
+## TMP: TextWrappingModes
+enum TextWrappingModes { NO_WRAP = 0, NORMAL = 1, PRESERVE_WHITESPACE = 2, PRESERVE_WHITESPACE_NO_WRAP = 3 }
+## TMP: TextOverflowModes
+enum TextOverflowModes { OVERFLOW = 0, ELLIPSIS = 1, MASKING = 2, TRUNCATE = 3, SCROLL_RECT = 4, PAGE = 5, LINKED = 6 }
+## TMP: TextureMappingOptions
+enum TextureMappingOptions { CHARACTER = 0, LINE = 1, PARAGRAPH = 2, MATCH_ASPECT = 3 }
+## TMP: TextRenderFlags
+enum TextRenderFlags { DONT_RENDER = 0, RENDER = 255 }
+## TMP: VertexSortingOrder
+enum VertexSortingOrder { NORMAL = 0, REVERSE = 1 }
+## TMP: TMP_VertexDataUpdateFlags
+enum VertexDataUpdateFlags { NONE = 0, VERTICES = 1, UV0 = 2, UV2 = 4, UV4 = 8, COLORS32 = 16, ALL = 255 }
+## OpenType layout features applied by the layout (TMP OTL_FeatureTag).
+## TMP: OTL_FeatureTag
+enum FontFeatures { KERN = 1, LIGA = 2, MARK = 4, MKMK = 8 }
+
+#@group Text
+#@prop text: String = "" | @export_multiline | layout,text | - | text | The text to display. Supports rich text tags when `rich_text` is on.
+#@group Main Settings
+#@prop font: TypesetterFontAsset = null | @export | layout,watch,material | - | font | The font asset. Null uses `TypesetterSettings.get_default_font_asset()`.
+#@prop font_shared_material: Material = null | @export | material | - | fontSharedMaterial | The material shared with other text using it. Null uses the font asset's material.
+#@prop font_style: int = 0 | @export_flags("Bold:1", "Italic:2", "Underline:4", "Lower Case:8", "Upper Case:16", "Small Caps:32", "Strikethrough:64", "Superscript:128", "Subscript:256", "Highlight:512") | layout | = | fontStyle | Style flags applied to the whole text (FontStyles).
+#@prop font_size: float = 36.0 | @export_range(0.0, 2000.0, 0.01, "or_greater") | layout | = | fontSize | Point size of the text.
+#@prop enable_auto_sizing: bool = false | @export | layout | = | enableAutoSizing | Picks the largest size between `font_size_min` and `font_size_max` that fits the container.
+#@prop font_size_min: float = 18.0 | @export_range(0.0, 2000.0, 0.01, "or_greater") | layout | = | fontSizeMin | Smallest size auto-sizing may pick.
+#@prop font_size_max: float = 72.0 | @export_range(0.0, 2000.0, 0.01, "or_greater") | layout | = | fontSizeMax | Largest size auto-sizing may pick.
+#@prop character_width_adjustment: float = 0.0 | @export_range(0.0, 50.0, 0.01) | layout | = | characterWidthAdjustment | Auto-sizing: maximum horizontal compression in percent before the size drops.
+#@prop line_spacing_adjustment: float = 0.0 | @export_range(-100.0, 0.0, 0.01) | layout | = | lineSpacingAdjustment | Auto-sizing: maximum negative line spacing before the size drops.
+#@prop font_weight: FontWeight = FontWeight.REGULAR | @export | layout | = | fontWeight | Weight used to pick a face from the font asset's weight table.
+#@prop color: Color = Color.WHITE | @export | layout | = | color | Vertex colour of the text.
+#@prop enable_vertex_gradient: bool = false | @export | layout | - | enableVertexGradient | Applies `color_gradient` (or `color_gradient_preset`) to every character.
+#@prop color_gradient: TypesetterVertexGradient = null | @export | layout,watch | - | colorGradient | Corner colours used when `enable_vertex_gradient` is on.
+#@prop color_gradient_preset: TypesetterColorGradient = null | @export | layout,watch | - | colorGradientPreset | A gradient preset; overrides `color_gradient` when set.
+#@prop override_color_tags: bool = false | @export | layout | = | overrideColorTags | Ignores `<color>` tags and uses `color`.
+#@group Spacing
+#@prop character_spacing: float = 0.0 | @export | layout | = | characterSpacing | Extra space between characters, in hundredths of an em.
+#@prop word_spacing: float = 0.0 | @export | layout | = | wordSpacing | Extra space between words, in hundredths of an em.
+#@prop line_spacing: float = 0.0 | @export | layout | = | lineSpacing | Extra space between lines, in hundredths of an em.
+#@prop paragraph_spacing: float = 0.0 | @export | layout | = | paragraphSpacing | Extra space between paragraphs, in hundredths of an em.
+#@group Alignment
+#@prop horizontal_alignment: HorizontalAlignmentOptions = HorizontalAlignmentOptions.LEFT | @export | layout | - | horizontalAlignment | Horizontal alignment.
+#@prop vertical_alignment: VerticalAlignmentOptions = VerticalAlignmentOptions.TOP | @export | layout | - | verticalAlignment | Vertical alignment.
+#@prop word_wrapping_ratios: float = 0.4 | @export_range(0.0, 1.0, 0.01) | layout | = | wordWrappingRatios | Justified text: share of the extra space given to characters (the rest goes to spaces).
+#@group Wrapping and Overflow
+#@prop text_wrapping_mode: TextWrappingModes = TextWrappingModes.NORMAL | @export | layout | = | textWrappingMode | How lines wrap and whether white space is preserved.
+#@prop overflow_mode: TextOverflowModes = TextOverflowModes.OVERFLOW | @export | layout,material | = | overflowMode | What happens to text that does not fit.
+#@prop linked_text_component: Node = null | @export | layout | - | linkedTextComponent | Text node that receives the overflow in Linked mode.
+#@prop page_to_display: int = 1 | @export_range(1, 1000, 1, "or_greater") | layout | = | pageToDisplay | Page shown in Page overflow mode (1-based).
+#@group UV Mapping
+#@prop horizontal_mapping: TextureMappingOptions = TextureMappingOptions.CHARACTER | @export | layout | = | horizontalMapping | How the face and outline textures map horizontally.
+#@prop vertical_mapping: TextureMappingOptions = TextureMappingOptions.CHARACTER | @export | layout | = | verticalMapping | How the face and outline textures map vertically.
+#@prop mapping_uv_line_offset: float = 0.0 | @export | layout | = | mappingUvLineOffset | Horizontal UV offset applied per line with Line or Paragraph mapping.
+#@group Extra Settings
+#@prop margin: Vector4 = Vector4.ZERO | @export | layout | = | margin | Inset of the text area from the container: left, top, right, bottom.
+#@prop geometry_sorting_order: VertexSortingOrder = VertexSortingOrder.NORMAL | @export | vertices | = | geometrySortingOrder | Draw order of the character quads.
+#@prop is_text_object_scale_static: bool = false | @export | none | - | isTextObjectScaleStatic | Skips per-frame scale checks (the scale is folded into the shader by derivatives, so this has no cost either way).
+#@prop rich_text: bool = true | @export | layout | = | richText | Parses rich text tags.
+#@prop parse_ctrl_characters: bool = true | @export | layout | = | parseCtrlCharacters | Turns `\n`, `\t` and friends written as two characters into control characters.
+#@prop use_max_visible_descender: bool = true | @export | layout | = | useMaxVisibleDescender | With `max_visible_*`, vertical alignment uses the descender of the visible lines only.
+#@prop sprite_asset: TypesetterSpriteAsset = null | @export | layout,watch | - | spriteAsset | Sprite asset for `<sprite>` tags. Null uses the project default.
+#@prop tint_all_sprites: bool = false | @export | layout | = | tintAllSprites | Multiplies sprites by the text colour.
+#@prop style_sheet: TypesetterStyleSheet = null | @export | layout,watch | - | styleSheet | Style sheet for `<style>` tags. Null uses the project default.
+#@prop text_style: TypesetterStyle = null | @export | layout,watch | - | textStyle | A style applied to the whole text.
+#@prop font_features: int = 3 | @export_flags("kern:1", "liga:2", "mark:4", "mkmk:8") | layout | = | fontFeatures | OpenType layout features applied (FontFeatures).
+#@prop extra_padding: bool = false | @export | layout | = | extraPadding | Adds padding around each character's quad for effects that extend beyond it.
+#@prop emoji_fallback_support: bool = true | @export | layout | - | emojiFallbackSupport | Looks up emoji in the emoji fallback assets first.
+#@prop is_right_to_left_text: bool = false | @export | layout | = | isRightToLeftText | Lays the text out right to left.
+#@prop is_orthographic: bool = false | @export | material | - | isOrthographic | Hint for orthographic projection; the shaders derive anti-aliasing from screen derivatives, so it only affects `perspective_filter`.
+#@prop enable_culling: bool = false | @export | none | - | enableCulling | Skips drawing when the text is outside the view.
+#@prop ignore_visibility: bool = false | @export | none | - | ignoreVisibility | Keeps updating geometry while hidden.
+#@prop render_mode: TextRenderFlags = TextRenderFlags.RENDER | @export | vertices | - | renderMode | Set to DONT_RENDER to lay out text without drawing it.
+#@prop vertex_buffer_auto_size_reduction: bool = false | @export | none | - | vertexBufferAutoSizeReduction | Shrinks vertex buffers when the text gets shorter (always on: buffers are rebuilt to size).
+#@prop is_using_legacy_animation_component: bool = false | - | none | - | isUsingLegacyAnimationComponent | Accepted for compatibility; has no effect.
+#@prop auto_size_text_container: bool = false | @export | layout | - | autoSizeTextContainer | Resizes the container to the text's preferred size.
+#@group Visibility
+#@prop first_visible_character: int = 0 | @export_range(0, 99999, 1, "or_greater") | layout | = | firstVisibleCharacter | First character shown (used by Linked overflow).
+#@prop max_visible_characters: int = 99999 | @export_range(0, 99999, 1, "or_greater") | layout | = | maxVisibleCharacters | Number of characters shown (typewriter effects).
+#@prop max_visible_words: int = 99999 | @export_range(0, 99999, 1, "or_greater") | layout | = | maxVisibleWords | Number of words shown.
+#@prop max_visible_lines: int = 99999 | @export_range(0, 99999, 1, "or_greater") | layout | = | maxVisibleLines | Number of lines shown.
+#@group
+#@prop text_preprocessor: Object = null | - | layout | - | textPreprocessor | Object with `preprocess_text(text: String) -> String`, run before parsing (ITextPreprocessor).
+
+var _ts_core: TypesetterTextCore = TypesetterTextCore.new()
+var _ts_dirty_layout := true
+var _ts_dirty_vertices := true
+var _ts_dirty_material := true
+var _ts_queued := false
+var _ts_surfaces: Array[Dictionary] = []
+var _ts_font_material_instance: Material
+var _ts_font_materials_instances: Array[Material] = []
+var _ts_tint := Color.WHITE
+var _ts_watched := {}
+var _ts_linked_parent: Node
+var _ts_linked_start := -1
+var _ts_info_requested := false
+var _ts_parsed_cache := ""
+var _ts_have_properties_changed := false
+
+
+#@ro font_scale: float | fontScale | Scale from the font asset's sampling size to the current size (after auto-sizing).
+func _ts_get_font_scale() -> float:
+	_ts_ensure_layout()
+	var a := _ts_font()
+	if a == null or a.face_info == null:
+		return 1.0
+	var s := get_font_size_resolved() / a.face_info.point_size
+	return s * (0.1 if _ts_is_3d() else 1.0)
+
+
+#@ro pixels_per_unit: float | pixelsPerUnit | Pixels per node unit (1 for TypesetterLabel; 10 for TypesetterText3D at the default scale).
+func _ts_get_pixels_per_unit() -> float:
+	return 10.0 if _ts_is_3d() else 1.0
+
+
+#@ro is_using_bold: bool | isUsingBold | True when bold is applied by `font_style` or a `<b>` tag.
+func _ts_get_is_using_bold() -> bool:
+	if font_style & FontStyles.BOLD:
+		return true
+	_ts_ensure_layout()
+	var info := _ts_core.get_text_info()
+	for i in info.character_count:
+		if info.character_info[i].style & FontStyles.BOLD:
+			return true
+	return false
+
+
+#@rw alignment: TextAlignmentOptions | alignment | Horizontal and vertical alignment combined.
+func _ts_get_alignment() -> int:
+	return horizontal_alignment | vertical_alignment
+
+
+func _ts_set_alignment(v: int) -> void:
+	if v == TextAlignmentOptions.CONVERTED:
+		return
+	horizontal_alignment = (v & 0xFF) as HorizontalAlignmentOptions
+	vertical_alignment = (v & 0xFF00) as VerticalAlignmentOptions
+
+
+#@rw alpha: float | alpha | Alpha of `color`.
+func _ts_get_alpha() -> float:
+	return color.a
+
+
+func _ts_set_alpha(v: float) -> void:
+	var c := color
+	c.a = v
+	color = c
+
+
+#@rw enable_word_wrapping: bool | enableWordWrapping | Obsolete alias for `text_wrapping_mode` (NORMAL / NO_WRAP).
+func _ts_get_enable_word_wrapping() -> bool:
+	return text_wrapping_mode == TextWrappingModes.NORMAL or text_wrapping_mode == TextWrappingModes.PRESERVE_WHITESPACE
+
+
+func _ts_set_enable_word_wrapping(v: bool) -> void:
+	text_wrapping_mode = TextWrappingModes.NORMAL if v else TextWrappingModes.NO_WRAP
+
+
+#@rw enable_kerning: bool | enableKerning | Obsolete alias for the `kern` bit of `font_features`.
+func _ts_get_enable_kerning() -> bool:
+	return font_features & FontFeatures.KERN != 0
+
+
+func _ts_set_enable_kerning(v: bool) -> void:
+	font_features = (font_features | FontFeatures.KERN) if v else (font_features & ~FontFeatures.KERN)
+
+
+#@rw font_material: Material | fontMaterial | This node's own copy of the material (created on first access); edits do not affect other text.
+func _ts_get_font_material() -> Material:
+	if _ts_font_material_instance == null:
+		var base := _ts_base_shared_material()
+		if base != null:
+			_ts_font_material_instance = base.duplicate()
+			_ts_font_material_instance.resource_name = base.resource_name + " (Instance)"
+		_ts_set_material_dirty()
+	return _ts_font_material_instance
+
+
+func _ts_set_font_material(v: Material) -> void:
+	_ts_font_material_instance = v
+	_ts_set_material_dirty()
+	_ts_set_layout_dirty()
+
+
+#@rw font_shared_materials: Array | fontSharedMaterials | Materials of every surface (primary first), shared.
+func _ts_get_font_shared_materials() -> Array:
+	var out: Array = []
+	for s in _ts_surfaces:
+		if s.get("material_used") != null and not out.has(s.material_used):
+			out.append(s.material_used)
+	if out.is_empty():
+		out.append(_ts_base_shared_material())
+	return out
+
+
+func _ts_set_font_shared_materials(v: Array) -> void:
+	if not v.is_empty():
+		font_shared_material = v[0]
+
+
+#@rw font_materials: Array | fontMaterials | Instanced materials of every surface.
+func _ts_get_font_materials() -> Array:
+	return [_ts_get_font_material()]
+
+
+func _ts_set_font_materials(v: Array) -> void:
+	if not v.is_empty():
+		_ts_set_font_material(v[0])
+
+
+#@rw face_color: Color | faceColor | The material's face colour (instances the material).
+func _ts_get_face_color() -> Color:
+	return _ts_material_param(&"face_color", Color.WHITE)
+
+
+func _ts_set_face_color(v: Color) -> void:
+	_ts_set_material_param(&"face_color", v)
+
+
+#@rw outline_color: Color | outlineColor | The material's outline colour (instances the material).
+func _ts_get_outline_color() -> Color:
+	return _ts_material_param(&"outline_color", Color.BLACK)
+
+
+func _ts_set_outline_color(v: Color) -> void:
+	_ts_set_material_param(&"outline_color", v)
+
+
+#@rw outline_width: float | outlineWidth | The material's outline width, 0–1 (instances the material).
+func _ts_get_outline_width() -> float:
+	return _ts_material_param(&"outline_width", 0.0)
+
+
+func _ts_set_outline_width(v: float) -> void:
+	_ts_set_material_param(&"outline_width", v)
+
+
+#@ro is_text_overflowing: bool | isTextOverflowing | True when the text does not fit vertically.
+func _ts_get_is_text_overflowing() -> bool:
+	_ts_ensure_layout()
+	return _ts_core.is_text_overflowing()
+
+
+#@ro first_overflow_character_index: int | firstOverflowCharacterIndex | Index of the first character that did not fit, or -1.
+func _ts_get_first_overflow_character_index() -> int:
+	_ts_ensure_layout()
+	return _ts_core.get_first_overflow_character_index()
+
+
+#@ro is_text_truncated: bool | isTextTruncated | True when Truncate or Ellipsis cut the text.
+func _ts_get_is_text_truncated() -> bool:
+	_ts_ensure_layout()
+	return (overflow_mode == TextOverflowModes.TRUNCATE or overflow_mode == TextOverflowModes.ELLIPSIS) and _ts_core.get_first_overflow_character_index() >= 0
+
+
+#@ro text_info: TypesetterTextInfo | textInfo | Characters, words, lines, links, pages and meshes of the current layout.
+func _ts_get_text_info() -> TypesetterTextInfo:
+	_ts_ensure_layout()
+	return _ts_core.get_text_info()
+
+
+#@ro bounds: AABB | bounds | Bounds of the text geometry (padded quads), in node space.
+func _ts_get_bounds() -> AABB:
+	_ts_ensure_layout()
+	var info := _ts_core.get_text_info()
+	var lo := Vector3(INF, INF, 0)
+	var hi := Vector3(-INF, -INF, 0)
+	for i in info.character_count:
+		var c: TypesetterCharacterInfo = info.character_info[i]
+		if not c.is_visible:
+			continue
+		for p in [c.top_left, c.bottom_right, c.top_right, c.bottom_left]:
+			lo = Vector3(minf(lo.x, p.x), minf(lo.y, p.y), 0)
+			hi = Vector3(maxf(hi.x, p.x), maxf(hi.y, p.y), 0)
+	if lo.x > hi.x:
+		return AABB()
+	return AABB(lo, hi - lo)
+
+
+#@ro text_bounds: AABB | textBounds | Bounds of the laid-out text (advances and line extents), in node space.
+func _ts_get_text_bounds() -> AABB:
+	_ts_ensure_layout()
+	var r := _ts_core.get_text_bounds()
+	return AABB(Vector3(r.position.x, r.position.y, 0), Vector3(r.size.x, r.size.y, 0))
+
+
+#@ro mesh: Mesh | mesh | The generated mesh (TypesetterText3D) or the first surface mesh (TypesetterLabel).
+func _ts_get_mesh() -> Mesh:
+	_ts_ensure_geometry()
+	return _ts_get_mesh_impl()
+
+
+#@ro preferred_width: float | preferredWidth | Width the text needs on one line per paragraph (layout element).
+func _ts_get_preferred_width() -> float:
+	_ts_ensure_layout()
+	return _ts_core.get_preferred_width()
+
+
+#@ro preferred_height: float | preferredHeight | Height the text needs at the current width (layout element).
+func _ts_get_preferred_height() -> float:
+	_ts_ensure_layout()
+	return _ts_core.get_preferred_height()
+
+
+#@ro rendered_width: float | renderedWidth | Width of the laid-out text.
+func _ts_get_rendered_width() -> float:
+	return get_rendered_values(false).x
+
+
+#@ro rendered_height: float | renderedHeight | Height of the laid-out text.
+func _ts_get_rendered_height() -> float:
+	return get_rendered_values(false).y
+
+
+#@ro flexible_width: float | flexibleWidth | Layout element flexible width (-1: not flexible).
+func _ts_get_flexible_width() -> float:
+	return -1.0
+
+
+#@ro flexible_height: float | flexibleHeight | Layout element flexible height (-1: not flexible).
+func _ts_get_flexible_height() -> float:
+	return -1.0
+
+
+#@ro min_width: float | minWidth | Layout element minimum width.
+func _ts_get_min_width() -> float:
+	return 0.0
+
+
+#@ro min_height: float | minHeight | Layout element minimum height.
+func _ts_get_min_height() -> float:
+	return 0.0
+
+
+#@ro max_width: float | maxWidth | Largest preferred width.
+func _ts_get_max_width() -> float:
+	return _ts_get_preferred_width()
+
+
+#@ro max_height: float | maxHeight | Largest preferred height.
+func _ts_get_max_height() -> float:
+	return _ts_get_preferred_height()
+
+
+#@ro layout_priority: int | layoutPriority | Layout element priority.
+func _ts_get_layout_priority() -> int:
+	return 0
+
+
+#@rw have_properties_changed: bool | havePropertiesChanged | True while a change is waiting for the next update; set it to force one.
+func _ts_get_have_properties_changed() -> bool:
+	return _ts_dirty_layout or _ts_dirty_vertices or _ts_dirty_material
+
+
+func _ts_set_have_properties_changed(v: bool) -> void:
+	if v:
+		_ts_set_layout_dirty()
+
+
+#@ro sprite_animator: TypesetterSpriteAnimator | spriteAnimator | The animator that plays `<sprite anim=...>` (created on demand).
+func _ts_get_sprite_animator() -> TypesetterSpriteAnimator:
+	for c in get_children(true):
+		if c is TypesetterSpriteAnimator:
+			return c
+	var a := TypesetterSpriteAnimator.new()
+	a.name = "SpriteAnimator"
+	add_child(a, false, Node.INTERNAL_MODE_BACK)
+	return a
+
+
+# ------------------------------------------------------------------ methods
+
+## Lays the text out and rebuilds its geometry now instead of before the next frame.
+## TMP: ForceMeshUpdate(bool ignoreActiveState, bool forceTextReparsing)
+func force_mesh_update(ignore_active_state: bool = false, force_text_reparsing: bool = false) -> void:
+	if not ignore_active_state and not _ts_is_active():
+		return
+	if force_text_reparsing:
+		_ts_dirty_layout = true
+	_ts_update(true)
+
+
+## Replaces the drawn geometry with `mesh` (one surface per material).
+## TMP: UpdateGeometry(Mesh mesh, int index)
+func update_geometry(new_mesh: Mesh, index: int) -> void:
+	if new_mesh == null:
+		return
+	if index < _ts_surfaces.size():
+		_ts_replace_surface_mesh(index, new_mesh)
+
+
+## Uploads edits made to `text_info.mesh_info` (vertices, colours, UVs).
+## TMP: UpdateVertexData(TMP_VertexDataUpdateFlags flags)
+func update_vertex_data(flags: int = VertexDataUpdateFlags.ALL) -> void:
+	if flags == VertexDataUpdateFlags.NONE:
+		return
+	_ts_update_vertex_data_impl()
+
+
+## Replaces the vertex positions of the first mesh.
+## TMP: SetVertices(Vector3[] vertices)
+func set_vertices(vertices: PackedVector3Array) -> void:
+	var info := _ts_get_text_info()
+	if info.mesh_info.is_empty():
+		return
+	var mi: TypesetterMeshInfo = info.mesh_info[0]
+	var n := mini(vertices.size(), mi.vertices.size())
+	for i in n:
+		mi.vertices[i] = vertices[i]
+	update_vertex_data(VertexDataUpdateFlags.VERTICES)
+
+
+## Recomputes the quad padding from the material (after editing material effects).
+## TMP: UpdateMeshPadding
+func update_mesh_padding() -> void:
+	_ts_set_layout_dirty()
+
+
+## Fades the text tint to `target_color` over `duration` seconds.
+## TMP: CrossFadeColor(Color targetColor, float duration, bool ignoreTimeScale, bool useAlpha)
+func cross_fade_color(target_color: Color, duration: float, ignore_time_scale: bool = false, use_alpha: bool = true) -> void:
+	var to := target_color
+	if not use_alpha:
+		to.a = _ts_tint.a
+	_ts_fade_to(to, duration, ignore_time_scale)
+
+
+## Fades the text tint's alpha to `target_alpha` over `duration` seconds.
+## TMP: CrossFadeAlpha(float alpha, float duration, bool ignoreTimeScale)
+func cross_fade_alpha(target_alpha: float, duration: float, ignore_time_scale: bool = false) -> void:
+	var to := _ts_tint
+	to.a = target_alpha
+	_ts_fade_to(to, duration, ignore_time_scale)
+
+
+## Sets `text` from a format string: `{0}` inserts the first argument, `{1:2}`
+## the second with two decimals, `{2:00}` zero-padded to two digits.
+## TMP: SetText(string sourceText, float arg0, float arg1, ...) and SetText(StringBuilder)
+func set_text(source_text: Variant, ...args: Array) -> void:
+	text = TypesetterTextUtilities.format_text(str(source_text), args)
+
+
+## Sets `text` from an array of characters or code points.
+## TMP: SetCharArray(char[] sourceText, int start, int length)
+func set_char_array(source: Variant, start: int = 0, length: int = -1) -> void:
+	var s := ""
+	var n: int = source.size() if length < 0 else mini(length, source.size() - start)
+	for i in range(start, start + n):
+		var c = source[i]
+		s += c if c is String else char(int(c))
+	text = s
+
+
+## Preferred size of the text. Forms: `()`, `(text)`, `(width, height)`,
+## `(text, width, height)`; 0 or INF means unconstrained.
+## TMP: GetPreferredValues(...)
+func get_preferred_values(...args: Array) -> Vector2:
+	var t := text
+	var w := INF
+	var h := INF
+	if args.size() == 1 or args.size() == 3:
+		t = str(args[0])
+		args = args.slice(1)
+	if args.size() >= 2:
+		w = float(args[0])
+		h = float(args[1])
+	var core := _ts_make_core(t)
+	return core.get_preferred_values(w, h)
+
+
+## Size of the laid-out text; with `only_visible`, hidden characters are excluded.
+## TMP: GetRenderedValues(bool onlyVisibleCharacters)
+func get_rendered_values(only_visible: bool = false) -> Vector2:
+	_ts_ensure_layout()
+	return _ts_core.get_rendered_values(only_visible)
+
+
+## Lays out `source_text` with this node's settings and returns its text info
+## without changing the node.
+## TMP: GetTextInfo(string text)
+func get_text_info(source_text: String) -> TypesetterTextInfo:
+	var core := _ts_make_core(source_text)
+	return core.get_text_info()
+
+
+## The text with tags removed and escapes resolved.
+## TMP: GetParsedText
+func get_parsed_text() -> String:
+	var info := _ts_get_text_info()
+	var s := ""
+	for i in info.character_count:
+		s += info.character_info[i].character
+	return s
+
+
+## Recomputes the text area after margin or size changes.
+## TMP: ComputeMarginSize
+func compute_margin_size() -> void:
+	_ts_set_layout_dirty()
+
+
+## Removes the drawn geometry until the next update.
+## TMP: ClearMesh(bool updateMesh)
+func clear_mesh(_update_mesh: bool = true) -> void:
+	_ts_surfaces.clear()
+	_ts_clear_geometry()
+
+
+## TMP: SetAllDirty
+func set_all_dirty() -> void:
+	_ts_set_layout_dirty()
+	_ts_set_material_dirty()
+
+
+## TMP: SetVerticesDirty
+func set_vertices_dirty() -> void:
+	_ts_set_vertices_dirty()
+
+
+## TMP: SetLayoutDirty
+func set_layout_dirty() -> void:
+	_ts_set_layout_dirty()
+
+
+## TMP: SetMaterialDirty
+func set_material_dirty() -> void:
+	_ts_set_material_dirty()
+
+
+## TMP: Rebuild(CanvasUpdate update)
+func rebuild(_update: int = 0) -> void:
+	_ts_update(true)
+
+
+## TMP: CalculateLayoutInputHorizontal
+func calculate_layout_input_horizontal() -> void:
+	_ts_ensure_layout()
+
+
+## TMP: CalculateLayoutInputVertical
+func calculate_layout_input_vertical() -> void:
+	_ts_ensure_layout()
+
+
+## Font size after auto-sizing (`font_size` when auto-sizing is off).
+func get_font_size_resolved() -> float:
+	_ts_ensure_layout()
+	return _ts_core.get_resolved_font_size()
+
+
+## Number of pages (Page overflow).
+func get_page_count() -> int:
+	_ts_ensure_layout()
+	return _ts_core.get_page_count()
+
+
+## The underlying engine (for godot-uxml and custom renderers).
+func get_text_core() -> TypesetterTextCore:
+	_ts_ensure_layout()
+	return _ts_core
+
+
+# ------------------------------------------------------------------ internals
+
+func _ts_is_active() -> bool:
+	return is_inside_tree() and (ignore_visibility or _ts_is_visible())
+
+
+func _ts_font() -> TypesetterFontAsset:
+	if font != null:
+		return font
+	return TypesetterSettings.get_default_font_asset()
+
+
+func _ts_base_shared_material() -> Material:
+	if font_shared_material != null:
+		return font_shared_material
+	return TypesetterMaterialManager.get_default_material(_ts_font())
+
+
+func _ts_base_material() -> Material:
+	if _ts_font_material_instance != null:
+		return _ts_font_material_instance
+	return _ts_base_shared_material()
+
+
+func _ts_material_param(n: StringName, d: Variant) -> Variant:
+	var m := _ts_base_material() as ShaderMaterial
+	if m == null:
+		return d
+	var v = m.get_shader_parameter(n)
+	return d if v == null else v
+
+
+func _ts_set_material_param(n: StringName, v: Variant) -> void:
+	var m := _ts_get_font_material() as ShaderMaterial
+	if m == null:
+		return
+	m.set_shader_parameter(n, v)
+	TypesetterShaderUtilities.update_shader_ratios(m)
+	TypesetterMaterialManager.mark_changed(m)
+	_ts_set_material_dirty()
+	_ts_set_layout_dirty()
+
+
+func _ts_on_changed(prop: StringName, kinds: int) -> void:
+	if kinds & 1:
+		_ts_set_layout_dirty()
+	if kinds & 2:
+		_ts_set_vertices_dirty()
+	if kinds & 4:
+		_ts_set_material_dirty()
+	if kinds & 8:
+		text_changed.emit()
+		TypesetterSettings.events.text_changed.emit(self)
+	if prop == &"font":
+		_ts_font_material_instance = null
+	_ts_property_hook(prop)
+
+
+func _ts_watch(old: Resource, new: Resource) -> void:
+	if old != null and old.changed.is_connected(_ts_on_resource_changed):
+		old.changed.disconnect(_ts_on_resource_changed)
+	if new != null and not new.changed.is_connected(_ts_on_resource_changed):
+		new.changed.connect(_ts_on_resource_changed)
+
+
+func _ts_on_resource_changed() -> void:
+	_ts_set_layout_dirty()
+
+
+func _ts_set_layout_dirty() -> void:
+	_ts_dirty_layout = true
+	_ts_queue_update()
+
+
+func _ts_set_vertices_dirty() -> void:
+	_ts_dirty_vertices = true
+	_ts_queue_update()
+
+
+func _ts_set_material_dirty() -> void:
+	_ts_dirty_material = true
+	_ts_queue_update()
+
+
+func _ts_queue_update() -> void:
+	if _ts_queued:
+		return
+	_ts_queued = true
+	_ts_deferred_update.call_deferred()
+
+
+func _ts_deferred_update() -> void:
+	_ts_queued = false
+	if not is_inside_tree():
+		return
+	if not ignore_visibility and not _ts_is_visible():
+		return
+	_ts_update(false)
+
+
+func _ts_ensure_layout() -> void:
+	if _ts_dirty_layout:
+		_ts_layout()
+
+
+func _ts_ensure_geometry() -> void:
+	if _ts_dirty_layout or _ts_dirty_vertices or _ts_dirty_material:
+		_ts_update(false)
+
+
+func _ts_layout() -> void:
+	_ts_sync_core(_ts_core, _ts_source_text())
+	_ts_core.update()
+	_ts_dirty_layout = false
+	_ts_dirty_vertices = true
+	_ts_after_layout()
+
+
+func _ts_update(force: bool) -> void:
+	if _ts_dirty_layout or force:
+		_ts_layout()
+	if _ts_dirty_vertices or _ts_dirty_material or force:
+		_ts_dirty_vertices = false
+		_ts_dirty_material = false
+		if render_mode == TextRenderFlags.DONT_RENDER:
+			_ts_surfaces.clear()
+			_ts_clear_geometry()
+			return
+		_ts_build_surfaces()
+		pre_render_text.emit(_ts_core.get_text_info())
+		_ts_present()
+
+
+func _ts_source_text() -> String:
+	var t := text
+	if _ts_linked_parent != null and is_instance_valid(_ts_linked_parent):
+		t = _ts_linked_parent.text
+	if text_preprocessor != null and text_preprocessor.has_method(&"preprocess_text"):
+		t = text_preprocessor.preprocess_text(t)
+	return t
+
+
+## Copies this node's settings into a core (the node's own, or a scratch core
+## for get_preferred_values / get_text_info).
+func _ts_sync_core(c: TypesetterTextCore, source: String) -> void:
+	c.text = source
+	c.font = _ts_font()
+	c.alignment = horizontal_alignment | vertical_alignment
+	c.rect_size = _ts_container_size()
+	c.pivot = _ts_container_pivot()
+	c.world_space = _ts_is_3d()
+	c.enable_kerning = font_features & FontFeatures.KERN != 0
+	if _ts_linked_parent != null and _ts_linked_start >= 0:
+		c.first_visible_character = _ts_linked_start
+	# Gradient: preset wins over the per-node gradient.
+	if enable_vertex_gradient and color_gradient_preset != null:
+		c.color_gradient = color_gradient_preset.to_colors()
+	elif enable_vertex_gradient and color_gradient != null:
+		c.color_gradient = color_gradient.to_colors()
+	else:
+		c.color_gradient = PackedColorArray()
+	# Lookups for <font>, <material>, <style>, <gradient> and <sprite>.
+	var sheet := style_sheet if style_sheet != null else TypesetterSettings.get_default_style_sheet()
+	c.style_lookup = sheet.to_lookup() if sheet != null else {}
+	if text_style != null:
+		c.text_style_opening = text_style.opening_definition
+		c.text_style_closing = text_style.closing_definition
+	else:
+		c.text_style_opening = ""
+		c.text_style_closing = ""
+	var sprites: Array[Resource] = []
+	var sa := sprite_asset if sprite_asset != null else TypesetterSettings.get_default_sprite_asset()
+	if sa != null:
+		sprites.append(sa)
+	c.sprite_assets = sprites
+	c.font_lookup = TypesetterTextUtilities.font_lookup()
+	c.material_lookup = TypesetterTextUtilities.material_lookup()
+	c.gradient_lookup = TypesetterTextUtilities.gradient_lookup()
+	var fallbacks: Array[TypesetterFontAsset] = TypesetterSettings.get_fallback_font_assets()
+	if emoji_fallback_support:
+		for r in TypesetterSettings.get_emoji_fallback_text_assets():
+			if r is TypesetterFontAsset:
+				fallbacks.push_front(r)
+	c.fallback_font_assets = fallbacks
+	c.missing_glyph_character = TypesetterSettings.get_missing_glyph_character()
+	c.leading_characters = TypesetterSettings.get_leading_characters()
+	c.following_characters = TypesetterSettings.get_following_characters()
+	# Quad padding: the atlas edge allowance plus what the material's effects need.
+	var a := c.font
+	var bitmap := a != null and a.atlas_render_mode <= TypesetterFontAsset.RASTER_HINTED
+	var base := 1.0 if bitmap else 1.25
+	c.mesh_padding = base + (0.0 if bitmap else TypesetterShaderUtilities.get_padding(_ts_base_material(), extra_padding, _ts_style_has_bold()))
+	_ts_sync_core_generated(c)
+
+
+func _ts_style_has_bold() -> bool:
+	return font_style & FontStyles.BOLD != 0 or (rich_text and text.findn("<b>") >= 0)
+
+
+func _ts_make_core(source: String) -> TypesetterTextCore:
+	var c := TypesetterTextCore.new()
+	_ts_sync_core(c, source)
+	c.update()
+	return c
+
+
+func _ts_after_layout() -> void:
+	_ts_have_properties_changed = false
+	# Linked overflow: hand the rest of the text to the linked component.
+	if overflow_mode == TextOverflowModes.LINKED and linked_text_component != null and linked_text_component.has_method(&"_ts_set_linked_source"):
+		linked_text_component._ts_set_linked_source(self, _ts_core.get_first_overflow_character_index())
+	# Missing characters.
+	var missing: PackedInt32Array = _ts_core.get_missing_characters()
+	for i in range(0, missing.size(), 2):
+		TypesetterSettings.events.missing_character.emit(missing[i], missing[i + 1], text, _ts_font(), self)
+	if auto_size_text_container:
+		_ts_apply_auto_size_container()
+	if rich_text and text.contains("anim"):
+		_ts_get_sprite_animator().refresh_from_text.call_deferred()
+
+
+func _ts_set_linked_source(parent: Node, start: int) -> void:
+	if start < 0:
+		_ts_linked_parent = parent
+		_ts_linked_start = 1 << 30
+	else:
+		_ts_linked_parent = parent
+		_ts_linked_start = start
+	_ts_set_layout_dirty()
+
+
+func _ts_build_surfaces() -> void:
+	_ts_surfaces = _ts_build_meshes_impl()
+	var base := _ts_base_material()
+	var owner := _ts_font()
+	for s in _ts_surfaces:
+		var tex: Texture2D = s.get("texture")
+		var surface_base: Material = s.get("material", base)
+		if surface_base == null:
+			surface_base = base
+		var m := TypesetterMaterialManager.get_surface_material(surface_base, owner, s.get("font"), 0, _ts_is_3d(), _ts_overlay(), tex, s.get("sprite", false))
+		s["material_used"] = m
+
+
+func _ts_fade_to(to: Color, duration: float, ignore_time_scale: bool) -> void:
+	if duration <= 0.0:
+		_ts_set_tint(to)
+		return
+	var tw := create_tween()
+	tw.set_ignore_time_scale(ignore_time_scale)
+	tw.tween_method(_ts_set_tint, _ts_tint, to, duration)
+
+
+func _ts_set_tint(c: Color) -> void:
+	_ts_tint = c
+	_ts_apply_tint()

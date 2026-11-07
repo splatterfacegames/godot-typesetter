@@ -14,3 +14,4 @@
 /addons/typesetter/bin/
 /bench/results/
 __pycache__/
+/bench/godot/

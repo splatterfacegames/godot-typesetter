@@ -3,16 +3,19 @@
 shader_type spatial;
 render_mode unshaded, cull_disabled, blend_premul_alpha, depth_draw_never, depth_test_disabled;
 
+/// Atlas texture (set per surface from the font asset).
+uniform sampler2D main_tex : filter_linear, repeat_disable;
 #define TS_OUTLINE
 #define TS_UNDERLAY
 #define TS_GLOW
 #define TS_BEVEL
 #define TS_TEXTURES
 #define TS_MASK
+#define TS_INSTANCE_MASK
+#define TS_TEX main_tex
 #include "res://addons/typesetter/shaders/distance_field.gdshaderinc"
-
-/// Atlas texture (set per surface from the font asset).
-uniform sampler2D main_tex : filter_linear, repeat_disable;
+/// Per-node tint (cross_fade_color / cross_fade_alpha).
+instance uniform vec4 ts_tint = vec4(1.0);
 
 varying vec4 v_custom0;
 varying vec2 v_local;
@@ -28,7 +31,7 @@ void vertex() {
 }
 
 void fragment() {
-	vec4 vc = COLOR;
+	vec4 vc = COLOR * ts_tint;
 	if (!OUTPUT_IS_SRGB) {
 		vc.rgb = ts_to_linear(vc.rgb);
 	}
@@ -40,7 +43,7 @@ void fragment() {
 		c = texture(main_tex, UV) * vc;
 		c.rgb *= c.a;
 	} else {
-		c = ts_shade(main_tex, UV, vc, v_custom0, TIME);
+		c = ts_shade(UV, vc, v_custom0, TIME);
 	}
 #ifdef TS_MASK
 	c *= ts_mask(v_local);

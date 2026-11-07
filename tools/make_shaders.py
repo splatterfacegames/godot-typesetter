@@ -24,13 +24,17 @@ def canvas(desc, defs, msdf=False):
     return HDR.format(desc=desc) + """shader_type canvas_item;
 render_mode blend_premul_alpha;
 
-""" + defines(defs, msdf) + """#include \"""" + INC + """\"
+/// Atlas texture (set per surface from the font asset).
+uniform sampler2D main_tex : filter_linear, repeat_disable;
+""" + defines(defs, msdf) + "#define TS_TEX main_tex" + chr(10) + """#include \"""" + INC + """\"
 
 varying vec4 v_custom0;
 varying vec2 v_local;
+varying vec4 v_color;
 
 void vertex() {
 	v_custom0 = CUSTOM0;
+	v_color = COLOR;
 	VERTEX += vec2(vertex_offset_x, -vertex_offset_y);
 	v_local = VERTEX;
 }
@@ -39,12 +43,12 @@ void fragment() {
 	float flags = v_custom0.w;
 	vec4 c;
 	if (mod(floor(flags / 4.0), 2.0) >= 1.0) {
-		c = ts_solid(COLOR);
+		c = ts_solid(v_color);
 	} else if (mod(floor(flags / 2.0), 2.0) >= 1.0) {
-		c = texture(TEXTURE, UV) * COLOR;
+		c = texture(TEXTURE, UV) * v_color;
 		c.rgb *= c.a;
 	} else {
-		c = ts_shade(TEXTURE, UV, COLOR, v_custom0, TIME);
+		c = ts_shade(UV, v_color, v_custom0, TIME);
 	}
 #ifdef TS_MASK
 	c *= ts_mask(v_local);
@@ -59,10 +63,11 @@ def spatial(desc, defs, overlay=False, msdf=False):
     return HDR.format(desc=desc) + """shader_type spatial;
 render_mode """ + rm + """;
 
-""" + defines(defs, msdf) + """#include \"""" + INC + """\"
-
 /// Atlas texture (set per surface from the font asset).
 uniform sampler2D main_tex : filter_linear, repeat_disable;
+""" + defines(defs, msdf) + "#define TS_INSTANCE_MASK" + chr(10) + "#define TS_TEX main_tex" + chr(10) + """#include \"""" + INC + """\"
+/// Per-node tint (cross_fade_color / cross_fade_alpha).
+instance uniform vec4 ts_tint = vec4(1.0);
 
 varying vec4 v_custom0;
 varying vec2 v_local;
@@ -78,7 +83,7 @@ void vertex() {
 }
 
 void fragment() {
-	vec4 vc = COLOR;
+	vec4 vc = COLOR * ts_tint;
 	if (!OUTPUT_IS_SRGB) {
 		vc.rgb = ts_to_linear(vc.rgb);
 	}
@@ -90,7 +95,7 @@ void fragment() {
 		c = texture(main_tex, UV) * vc;
 		c.rgb *= c.a;
 	} else {
-		c = ts_shade(main_tex, UV, vc, v_custom0, TIME);
+		c = ts_shade(UV, vc, v_custom0, TIME);
 	}
 #ifdef TS_MASK
 	c *= ts_mask(v_local);
@@ -114,9 +119,11 @@ uniform float mask_softness_y = 0.0;
 
 varying vec4 v_custom0;
 varying vec2 v_local;
+varying vec4 v_color;
 
 void vertex() {
 	v_custom0 = CUSTOM0;
+	v_color = COLOR;
 	v_local = VERTEX;
 }
 
@@ -124,11 +131,11 @@ void fragment() {
 	float flags = v_custom0.w;
 	vec4 c;
 	if (mod(floor(flags / 4.0), 2.0) >= 1.0) {
-		c = COLOR;
+		c = v_color;
 	} else if (mod(floor(flags / 2.0), 2.0) >= 1.0) {
-		c = texture(TEXTURE, UV) * COLOR;
+		c = texture(TEXTURE, UV) * v_color;
 	} else {
-		c = face_color * COLOR * texture(face_tex, v_custom0.xy * face_tex_tiling + face_tex_offset);
+		c = face_color * v_color * texture(face_tex, v_custom0.xy * face_tex_tiling + face_tex_offset);
 		c.a *= texture(TEXTURE, UV).r;
 	}
 	vec2 soft = max(vec2(mask_softness_x, mask_softness_y), vec2(1e-4));
@@ -139,16 +146,21 @@ void fragment() {
 }
 """
 
-BITMAP_SPATIAL = HDR.format(desc="bitmap (coverage) text, 3D") + """shader_type spatial;
-render_mode unshaded, cull_disabled, blend_premul_alpha, depth_draw_never;
+def bitmap_spatial(overlay=False):
+    return HDR.format(desc="bitmap (coverage) text, 3D" + (" overlay" if overlay else "")) + """shader_type spatial;
+render_mode unshaded, cull_disabled, blend_premul_alpha, depth_draw_never""" + (", depth_test_disabled" if overlay else "") + """;
 
 uniform sampler2D main_tex : filter_linear, repeat_disable;
 uniform vec4 face_color : source_color = vec4(1.0);
 uniform sampler2D face_tex : source_color, hint_default_white, repeat_enable;
 uniform vec2 face_tex_tiling = vec2(1.0);
 uniform vec2 face_tex_offset = vec2(0.0);
+/// Per-node tint (cross_fade_color / cross_fade_alpha).
+instance uniform vec4 ts_tint = vec4(1.0);
+instance uniform vec4 clip_rect = vec4(-32767.0, -32767.0, 32767.0, 32767.0);
 
 varying vec4 v_custom0;
+varying vec2 v_local;
 
 vec3 ts_to_linear(vec3 c) {
 	return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), c));
@@ -156,10 +168,11 @@ vec3 ts_to_linear(vec3 c) {
 
 void vertex() {
 	v_custom0 = CUSTOM0;
+	v_local = VERTEX.xy;
 }
 
 void fragment() {
-	vec4 vc = COLOR;
+	vec4 vc = COLOR * ts_tint;
 	if (!OUTPUT_IS_SRGB) {
 		vc.rgb = ts_to_linear(vc.rgb);
 	}
@@ -172,6 +185,60 @@ void fragment() {
 	} else {
 		c = face_color * vc * texture(face_tex, v_custom0.xy * face_tex_tiling + face_tex_offset);
 		c.a *= texture(main_tex, UV).r;
+	}
+	if (any(lessThan(v_local, clip_rect.xy)) || any(greaterThan(v_local, clip_rect.zw))) {
+		discard;
+	}
+	ALBEDO = c.rgb * c.a;
+	ALPHA = c.a;
+}
+"""
+
+
+def sprite_canvas():
+    return HDR.format(desc="sprites (inline images), 2D") + """shader_type canvas_item;
+render_mode blend_premul_alpha;
+
+varying vec4 v_color;
+
+void vertex() {
+	v_color = COLOR;
+}
+
+void fragment() {
+	vec4 c = texture(TEXTURE, UV) * v_color;
+	c.rgb *= c.a;
+	COLOR = c;
+}
+"""
+
+
+def sprite_spatial(overlay=False):
+    return HDR.format(desc="sprites (inline images), 3D" + (" overlay" if overlay else "")) + """shader_type spatial;
+render_mode unshaded, cull_disabled, blend_premul_alpha, depth_draw_never""" + (", depth_test_disabled" if overlay else "") + """;
+
+uniform sampler2D main_tex : source_color, filter_linear_mipmap, repeat_disable;
+/// Per-node tint (cross_fade_color / cross_fade_alpha).
+instance uniform vec4 ts_tint = vec4(1.0);
+instance uniform vec4 clip_rect = vec4(-32767.0, -32767.0, 32767.0, 32767.0);
+varying vec2 v_local;
+
+void vertex() {
+	v_local = VERTEX.xy;
+}
+
+vec3 ts_to_linear(vec3 c) {
+	return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), c));
+}
+
+void fragment() {
+	vec4 vc = COLOR * ts_tint;
+	if (!OUTPUT_IS_SRGB) {
+		vc.rgb = ts_to_linear(vc.rgb);
+	}
+	vec4 c = texture(main_tex, UV) * vc;
+	if (any(lessThan(v_local, clip_rect.xy)) || any(greaterThan(v_local, clip_rect.zw))) {
+		discard;
 	}
 	ALBEDO = c.rgb * c.a;
 	ALPHA = c.a;
@@ -186,8 +253,14 @@ FILES = {
     "typesetter_distance_field_msdf_3d.gdshader": spatial("Distance Field shader for MSDF/MTSDF atlases, 3D", FULL, msdf=True),
     "typesetter_distance_field_overlay_3d.gdshader": spatial("Distance Field Overlay shader, 3D (draws over geometry)", FULL, overlay=True),
     "typesetter_distance_field_mobile_3d.gdshader": spatial("Distance Field (Mobile) shader, 3D", MOBILE),
+    "typesetter_distance_field_msdf_overlay_3d.gdshader": spatial("Distance Field Overlay shader for MSDF/MTSDF atlases, 3D", FULL, overlay=True, msdf=True),
+    "typesetter_distance_field_mobile_overlay_3d.gdshader": spatial("Distance Field (Mobile) Overlay shader, 3D", MOBILE, overlay=True),
     "typesetter_bitmap.gdshader": BITMAP_CANVAS,
-    "typesetter_bitmap_3d.gdshader": BITMAP_SPATIAL,
+    "typesetter_bitmap_3d.gdshader": bitmap_spatial(),
+    "typesetter_bitmap_overlay_3d.gdshader": bitmap_spatial(True),
+    "typesetter_sprite.gdshader": sprite_canvas(),
+    "typesetter_sprite_3d.gdshader": sprite_spatial(),
+    "typesetter_sprite_overlay_3d.gdshader": sprite_spatial(True),
 }
 
 if __name__ == "__main__":

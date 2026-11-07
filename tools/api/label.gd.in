@@ -1,0 +1,175 @@
+@tool
+@icon("res://addons/typesetter/icons/typesetter_label.svg")
+class_name TypesetterLabel
+extends Control
+## Signed-distance-field text for user interfaces (TextMeshProUGUI).
+##
+## Lays out rich text inside the control's rectangle and draws it with
+## Typesetter's distance-field shaders, so it stays sharp at any scale or
+## rotation. The API follows TextMesh Pro's TMP_Text one-to-one in snake_case;
+## see docs/api-map.md.
+## TMP: TextMeshProUGUI
+
+#@group UI
+#@prop raycast_target: bool = true | @export | none | - | raycastTarget | Receives mouse input (sets `mouse_filter` to STOP or IGNORE).
+#@prop raycast_padding: Vector4 = Vector4.ZERO | @export | none | - | raycastPadding | Grows (negative) or shrinks the input area: left, bottom, right, top.
+#@prop maskable: bool = true | @export | none | - | maskable | Clipped by ancestors that clip their children.
+
+# @@COMMON@@
+
+var _ts_items: Array[RID] = []
+var _ts_meshes: Array[ArrayMesh] = []
+
+
+func _init() -> void:
+	_ts_core.world_space = false
+	size = TypesetterSettings.get_value("default_label_container_size")
+
+
+func _ts_property_hook(prop: StringName) -> void:
+	if prop == &"raycast_target":
+		mouse_filter = MOUSE_FILTER_STOP if raycast_target else MOUSE_FILTER_IGNORE
+	elif prop == &"maskable":
+		for it in _ts_items:
+			RenderingServer.canvas_item_set_clip(it, overflow_mode == TextOverflowModes.MASKING)
+
+
+func _notification(what: int) -> void:
+	match what:
+		NOTIFICATION_RESIZED:
+			if not _ts_resizing:
+				_ts_set_layout_dirty()
+		NOTIFICATION_ENTER_TREE:
+			_ts_set_layout_dirty()
+		NOTIFICATION_VISIBILITY_CHANGED:
+			if is_visible_in_tree() and (_ts_dirty_layout or _ts_dirty_vertices or _ts_dirty_material):
+				_ts_queue_update()
+		NOTIFICATION_PREDELETE:
+			for item in _ts_items:
+				RenderingServer.free_rid(item)
+			_ts_items.clear()
+
+
+func _has_point(point: Vector2) -> bool:
+	if not raycast_target:
+		return false
+	var r := Rect2(Vector2.ZERO, size)
+	r.position += Vector2(raycast_padding.x, raycast_padding.w)
+	r.size -= Vector2(raycast_padding.x + raycast_padding.z, raycast_padding.y + raycast_padding.w)
+	return r.has_point(point)
+
+
+func _get_minimum_size() -> Vector2:
+	if auto_size_text_container:
+		return get_preferred_values()
+	if get_parent() is Container:
+		# Inside containers the label asks for the height its text needs at the
+		# width it was given (like an autowrapping Label).
+		_ts_ensure_layout()
+		var h := _ts_core.get_preferred_height()
+		var w := 0.0 if text_wrapping_mode == TextWrappingModes.NORMAL or text_wrapping_mode == TextWrappingModes.PRESERVE_WHITESPACE else _ts_core.get_preferred_width()
+		return Vector2(w, h)
+	return Vector2.ZERO
+
+
+var _ts_resizing := false
+
+
+func _ts_apply_auto_size_container() -> void:
+	if get_parent() is Container:
+		update_minimum_size()
+		return
+	var p := _ts_make_core(_ts_source_text()).get_preferred_values(INF, INF)
+	if not p.is_equal_approx(size):
+		_ts_resizing = true
+		size = p
+		_ts_resizing = false
+		_ts_core.rect_size = size
+		_ts_core.update()
+
+
+func _ts_is_3d() -> bool:
+	return false
+
+
+func _ts_overlay() -> bool:
+	return false
+
+
+func _ts_is_visible() -> bool:
+	return is_visible_in_tree()
+
+
+func _ts_container_size() -> Vector2:
+	return size
+
+
+func _ts_container_pivot() -> Vector2:
+	return pivot_offset / size if size.x > 0 and size.y > 0 else Vector2(0.5, 0.5)
+
+
+func _ts_build_meshes_impl() -> Array[Dictionary]:
+	var arr: Array[ArrayMesh] = []
+	arr.assign(_ts_meshes)
+	var dicts := _ts_core.build_meshes(arr)
+	_ts_meshes.clear()
+	var out: Array[Dictionary] = []
+	for d in dicts:
+		_ts_meshes.append(d.mesh)
+		out.append(d)
+	return out
+
+
+func _ts_present() -> void:
+	var parent := get_canvas_item()
+	while _ts_items.size() < _ts_surfaces.size():
+		var it := RenderingServer.canvas_item_create()
+		RenderingServer.canvas_item_set_parent(it, parent)
+		RenderingServer.canvas_item_set_default_texture_filter(it, RenderingServer.CANVAS_ITEM_TEXTURE_FILTER_LINEAR_WITH_MIPMAPS)
+		_ts_items.append(it)
+	while _ts_items.size() > _ts_surfaces.size():
+		RenderingServer.free_rid(_ts_items.pop_back())
+	var clip := overflow_mode == TextOverflowModes.MASKING
+	var clip_rect := Rect2(Vector2(margin.x, margin.y), size - Vector2(margin.x + margin.z, margin.y + margin.w)) if clip else Rect2()
+	for i in _ts_surfaces.size():
+		var s: Dictionary = _ts_surfaces[i]
+		var it := _ts_items[i]
+		RenderingServer.canvas_item_clear(it)
+		RenderingServer.canvas_item_set_parent(it, parent)
+		RenderingServer.canvas_item_set_draw_index(it, -1000 + i)
+		var tex: Texture2D = s.get("texture")
+		var m: ArrayMesh = s.mesh
+		RenderingServer.canvas_item_add_mesh(it, m.get_rid(), Transform2D(), Color.WHITE, tex.get_rid() if tex else RID())
+		var mat: Material = s.get("material_used")
+		RenderingServer.canvas_item_set_material(it, mat.get_rid() if mat else RID())
+		RenderingServer.canvas_item_set_modulate(it, _ts_tint)
+		RenderingServer.canvas_item_set_clip(it, clip)
+		RenderingServer.canvas_item_set_custom_rect(it, clip, clip_rect)
+	if get_parent() is Container:
+		update_minimum_size()
+
+
+func _ts_clear_geometry() -> void:
+	for it in _ts_items:
+		RenderingServer.canvas_item_clear(it)
+
+
+func _ts_apply_tint() -> void:
+	for it in _ts_items:
+		RenderingServer.canvas_item_set_modulate(it, _ts_tint)
+
+
+func _ts_get_mesh_impl() -> Mesh:
+	return _ts_meshes[0] if not _ts_meshes.is_empty() else null
+
+
+func _ts_replace_surface_mesh(index: int, new_mesh: Mesh) -> void:
+	_ts_surfaces[index]["mesh"] = new_mesh
+	_ts_present()
+
+
+func _ts_update_vertex_data_impl() -> void:
+	var arr: Array[ArrayMesh] = []
+	arr.assign(_ts_meshes)
+	_ts_core.update_vertex_data(arr)
+	_ts_present()
