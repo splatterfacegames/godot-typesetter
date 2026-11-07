@@ -114,6 +114,84 @@ pub fn coverage(polys: &[Vec<P>], w: usize, h: usize) -> Vec<f32> {
 }
 
 /// Non-zero winding inside test at every texel centre (x + 0.5, y + 0.5).
+/// Like `inside_mask`, but a pixel whose centre lies exactly on the outline
+/// counts as inside (centre-inclusive scan conversion, as monochrome
+/// rasterizers do). Outlines on the 1/64 px grid often put edges on centres.
+pub fn inside_mask_inclusive(polys: &[Vec<P>], w: usize, h: usize) -> Vec<bool> {
+    const E: f64 = 1.0 / 4096.0;
+    let mut out = vec![false; w * h];
+    for (dx, dy) in [(-E, -E), (E, -E), (-E, E), (E, E)] {
+        let shifted: Vec<Vec<P>> = polys.iter().map(|p| p.iter().map(|q| P::new(q.x + dx, q.y + dy)).collect()).collect();
+        for (o, m) in out.iter_mut().zip(inside_mask(&shifted, w, h)) {
+            *o |= m;
+        }
+    }
+    out
+}
+
+/// Centre-inclusive mask plus dropout control: a span between two outline
+/// crossings that contains no pixel centre (a feature thinner than a pixel)
+/// turns on the pixel holding the span's midpoint. Applied along rows and
+/// columns, as monochrome rasterizers do to keep thin strokes connected.
+pub fn inside_mask_dropout(polys: &[Vec<P>], w: usize, h: usize) -> Vec<bool> {
+    let mut out = inside_mask_inclusive(polys, w, h);
+    // Rows.
+    let mut spans = |vertical: bool, out: &mut Vec<bool>| {
+        let n_lines = if vertical { w } else { h };
+        let len = if vertical { h } else { w };
+        let mut xs: Vec<(f64, i32)> = Vec::new();
+        for line in 0..n_lines {
+            let c = line as f64 + 0.5;
+            xs.clear();
+            for poly in polys {
+                for win in poly.windows(2) {
+                    let (a, b) = (win[0], win[1]);
+                    let (a0, a1, b0, b1) = if vertical { (a.x, a.y, b.x, b.y) } else { (a.y, a.x, b.y, b.x) };
+                    if (a0 <= c && b0 > c) || (b0 <= c && a0 > c) {
+                        let t = (c - a0) / (b0 - a0);
+                        xs.push((a1 + (b1 - a1) * t, if b0 > a0 { 1 } else { -1 }));
+                    }
+                }
+            }
+            xs.sort_by(|p, q| p.0.partial_cmp(&q.0).unwrap_or(std::cmp::Ordering::Equal));
+            let mut wind = 0;
+            for k in 0..xs.len() {
+                let before = wind;
+                wind += xs[k].1;
+                if before == 0 && wind != 0 {
+                    // Span start; find its end.
+                    let mut wv = wind;
+                    let mut e = k + 1;
+                    while e < xs.len() {
+                        wv += xs[e].1;
+                        if wv == 0 {
+                            break;
+                        }
+                        e += 1;
+                    }
+                    if e >= xs.len() {
+                        continue;
+                    }
+                    let (xa, xb) = (xs[k].0, xs[e].0);
+                    // Pixel centres p + 0.5 within [xa, xb]?
+                    let first = (xa - 0.5).ceil();
+                    let last = (xb - 0.5).floor();
+                    if first > last {
+                        let p = ((xa + xb) * 0.5).floor();
+                        if p >= 0.0 && (p as usize) < len {
+                            let i = if vertical { (p as usize) * w + line } else { line * w + p as usize };
+                            out[i] = true;
+                        }
+                    }
+                }
+            }
+        }
+    };
+    spans(false, &mut out);
+    spans(true, &mut out);
+    out
+}
+
 pub fn inside_mask(polys: &[Vec<P>], w: usize, h: usize) -> Vec<bool> {
     let mut out = vec![false; w * h];
     let mut xs: Vec<(f64, i32)> = Vec::new();

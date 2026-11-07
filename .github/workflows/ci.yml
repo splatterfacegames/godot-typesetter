@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  GODOT_VERSION: 4.7.2
+
+jobs:
+  native:
+    name: Native library (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - os: macos-latest
+            target: aarch64-apple-darwin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native
+      - name: Build
+        run: python native/build.py --target ${{ matrix.target }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: typesetter-native-${{ matrix.target }}
+          path: addons/typesetter/bin/
+          if-no-files-found: error
+
+  rust-tests:
+    name: Rust tests and Unity layout parity
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native
+      - name: Unit tests
+        working-directory: native
+        run: cargo test --release --lib
+      - name: Layout parity against the committed Unity dumps
+        working-directory: native
+        run: cargo run -q --release --example parity
+
+  godot-tests:
+    name: GUT (headless)
+    needs: native
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: typesetter-native-x86_64-unknown-linux-gnu
+          path: addons/typesetter/bin/
+      - name: Install Godot
+        run: |
+          curl -L --fail --output godot.zip \
+            "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          unzip -q godot.zip
+          chmod +x "Godot_v${GODOT_VERSION}-stable_linux.x86_64"
+          sudo mv "Godot_v${GODOT_VERSION}-stable_linux.x86_64" /usr/local/bin/godot
+      - name: Import project
+        run: godot --headless --import
+      - name: Run GUT
+        run: godot --headless -s addons/gut/gut_cmdln.gd -gexit
+
+  lint:
+    name: gdlint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install gdtoolkit
+        run: python3 -m pip install gdtoolkit==4.5.0
+      - name: Run gdlint
+        run: gdlint addons/typesetter tests

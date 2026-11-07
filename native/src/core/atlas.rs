@@ -16,7 +16,7 @@
 use rayon::prelude::*;
 
 use super::font::Face;
-use super::outline::{Outline, P};
+use super::outline::P;
 use super::pack::{Heuristic, MaxRects, Rect};
 use super::{raster, sdf};
 
@@ -134,28 +134,26 @@ pub fn render_glyph(face: &Face, gid: u32, s: &GenSettings) -> Option<GlyphBitma
     let pm = face.pixel_metrics(gid, s.point_size);
     let advance = pm.advance as f32;
     // Outline in pixel units (y-up, pen origin), points scaled and rounded to
-    // 1/64 px exactly as the metrics are.
-    let (px_outline, metrics) = if s.mode.is_hinted() {
-        let o = face.outline_hinted(gid, s.point_size as f32).filter(|o| !o.is_empty());
-        let b = o.as_ref().map(|o| o.bounds());
-        let pmh = match b {
-            Some(b) if !b.is_empty() => super::font::PixelGlyphMetrics {
-                width: ((b.x1 - b.x0) * 64.0).round() / 64.0,
-                height: ((b.y1 - b.y0) * 64.0).round() / 64.0,
-                bearing_x: (b.x0 * 64.0).round() / 64.0,
-                bearing_y: (b.y1 * 64.0).round() / 64.0,
-                advance: pm.advance.round(),
-                box_x0: b.x0.floor() as i64,
-                box_y1: b.y1.ceil() as i64,
-                box_w: (b.x1.ceil() - b.x0.floor()) as i64,
-                box_h: (b.y1.ceil() - b.y0.floor()) as i64,
-            },
-            _ => pm,
-        };
-        (o, pmh)
+    // 1/64 px exactly as the metrics are. Hinted modes (calibrated against
+    // TextMesh Pro) keep the unhinted outline and bitmap, and snap the metrics
+    // to whole pixels: box floor/ceil, advance rounded.
+    let q = |v: f64| super::font::ft_mul(v, s16) as f64 / 64.0;
+    let px_outline = face.outline(gid).filter(|o| !o.is_empty()).map(|o| o.map(|p| P::new(q(p.x), q(p.y))));
+    let metrics = if s.mode.is_hinted() {
+        let x1 = pm.bearing_x + pm.width;
+        let y0 = pm.bearing_y - pm.height;
+        let bx0 = pm.bearing_x.floor();
+        let by1 = pm.bearing_y.ceil();
+        super::font::PixelGlyphMetrics {
+            width: if pm.width > 0.0 { x1.ceil() - bx0 } else { 0.0 },
+            height: if pm.height > 0.0 { by1 - y0.floor() } else { 0.0 },
+            bearing_x: if pm.width > 0.0 { bx0 } else { pm.bearing_x },
+            bearing_y: if pm.height > 0.0 { by1 } else { pm.bearing_y },
+            advance: pm.advance.round(),
+            ..pm
+        }
     } else {
-        let q = |v: f64| super::font::ft_mul(v, s16) as f64 / 64.0;
-        (face.outline(gid).filter(|o| !o.is_empty()).map(|o| o.map(|p| P::new(q(p.x), q(p.y)))), pm)
+        pm
     };
     let Some(o) = px_outline else {
         // No ink: metrics only.
@@ -173,6 +171,7 @@ pub fn render_glyph(face: &Face, gid: u32, s: &GenSettings) -> Option<GlyphBitma
     let bitmap_outline = o.to_pixels(1.0, metrics.box_x0 as f64 - pad as f64, metrics.box_y1 as f64 + pad as f64);
     let (uw, uh) = (w as usize, h as usize);
     let gs = s.gradient_scale() as f32;
+    let (mut out_w, mut out_h) = (w, h);
     let data: Vec<u8> = match s.mode {
         RenderMode::Smooth | RenderMode::SmoothHinted => {
             let polys = bitmap_outline.flatten(0.02);
@@ -180,11 +179,14 @@ pub fn render_glyph(face: &Face, gid: u32, s: &GenSettings) -> Option<GlyphBitma
         }
         RenderMode::Raster | RenderMode::RasterHinted => {
             let polys = bitmap_outline.flatten(0.02);
-            raster::inside_mask(&polys, uw, uh).iter().map(|&i| if i { 255 } else { 0 }).collect()
+            raster::inside_mask_dropout(&polys, uw, uh).iter().map(|&i| if i { 255 } else { 0 }).collect()
         }
         RenderMode::Sdf => {
             let polys = bitmap_outline.flatten(0.01);
-            sdf::analytic(&polys, uw, uh, gs as f64 + 1.0).iter().map(|&d| encode(d, gs)).collect()
+            let (d, cw, ch, _, _) = sdf::binary_cropped(&polys, uw, uh, pad as usize);
+            out_w = cw as i32;
+            out_h = ch as i32;
+            d.iter().map(|&v| encode(v as f32, gs)).collect()
         }
         RenderMode::Sdf8 | RenderMode::Sdf16 | RenderMode::Sdf32 => {
             let k = match s.mode {
@@ -192,8 +194,19 @@ pub fn render_glyph(face: &Face, gid: u32, s: &GenSettings) -> Option<GlyphBitma
                 RenderMode::Sdf16 => 16,
                 _ => 32,
             };
-            let polys = bitmap_outline.flatten(0.02 / k as f64);
-            sdf::edt_oversampled(&polys, uw, uh, k).iter().map(|&d| encode(d, gs)).collect()
+            // Outline quantized on the k× grid (k × ppem) in a frame with one
+            // spare texel around the padded box.
+            let s16k = super::font::ft_scale(s.point_size * k as f64, m.units_per_em);
+            let qk = |v: f64| super::font::ft_mul(v, s16k) as f64 / 64.0;
+            let kf = k as f64;
+            let ox = kf * (metrics.box_x0 - pad as i64 - 1) as f64;
+            let oy = kf * (metrics.box_y1 + pad as i64 + 1) as f64;
+            let ok = face.outline(gid).map(|o| o.map(|p| P::new(qk(p.x), qk(p.y))).to_pixels(1.0, ox, oy));
+            let polys = ok.unwrap_or_else(|| bitmap_outline.to_pixels(kf, -kf, -kf)).flatten(0.05);
+            let (d, sw, sh) = sdf::edt_supersampled(&polys, (uw + 2) * k, (uh + 2) * k, k, pad as usize);
+            out_w = sw as i32;
+            out_h = sh as i32;
+            d.iter().map(|&v| encode(v, gs)).collect()
         }
         RenderMode::Sdfaa | RenderMode::SdfaaHinted => {
             let polys = bitmap_outline.flatten(0.02);
@@ -213,8 +226,8 @@ pub fn render_glyph(face: &Face, gid: u32, s: &GenSettings) -> Option<GlyphBitma
             rect: Rect::default(),
             atlas_index: 0,
         },
-        w,
-        h,
+        w: out_w,
+        h: out_h,
         data,
     })
 }
@@ -347,7 +360,12 @@ mod tests {
             // Inter 'A' at 48 px: about 34 px tall cap height, positive advance.
             assert!(a.height >= 33.0 && a.height <= 36.0, "{a:?}");
             assert!(a.advance > 25.0 && a.bearing_y >= 33.0);
-            assert_eq!(a.rect.w as f32, (a.bearing_x + a.width).ceil() - a.bearing_x.floor());
+            let box_w = (a.bearing_x + a.width).ceil() - a.bearing_x.floor();
+            // Binary SDF modes crop the rect to the lit pixels, so it can be a
+            // texel narrower than the metric box (calibrated against Unity).
+            let cropped = matches!(mode, RenderMode::Sdf | RenderMode::Sdf8);
+            let rw = a.rect.w as f32;
+            assert!(rw == box_w || (cropped && rw == box_w - 1.0), "{mode:?}: rect {rw} vs box {box_w}");
             let p = &pages[0];
             if mode.is_distance_field() && mode.channels() == 1 {
                 // Centre of the glyph box row through the crossbar is inside → > 0.5.

@@ -20,4 +20,12 @@ fn main() {
         for px in p.pixels.chunks(4) { out.extend(&px[..3]); }
     }
     std::fs::write(&a[5], out).unwrap();
+    // Glyph rectangles (top-left origin) next to the image.
+    let mut j = String::from("[");
+    for (i, g) in r.glyphs.iter().enumerate() {
+        if i > 0 { j.push(','); }
+        j.push_str(&format!("[{},{},{},{},{}]", g.index, g.rect.x, g.rect.y, g.rect.w, g.rect.h));
+    }
+    j.push(']');
+    std::fs::write(format!("{}.json", &a[5]), j).unwrap();
 }

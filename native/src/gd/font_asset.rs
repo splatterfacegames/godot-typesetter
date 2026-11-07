@@ -124,7 +124,7 @@ impl TypesetterFaceInfo {
         self.underline_thickness = (m.underline_thickness * s) as f32;
         self.strikethrough_offset = (m.strikethrough_offset * s) as f32;
         self.strikethrough_thickness = (m.strikethrough_thickness * s) as f32;
-        self.tab_width = (m.tab_width / 10.0 * s) as f32;
+        self.tab_width = (m.tab_width / 10.0 * s).floor() as f32; // whole units, as TMP reports
     }
 }
 
@@ -240,6 +240,10 @@ pub struct TypesetterFontAsset {
     #[export]
     #[var(usage_flags = [STORAGE])]
     pub pair_adjustment_data: PackedFloat32Array,
+    /// True once `update_font_feature_table` ran: later glyph additions read
+    /// GPOS/GSUB instead of only the legacy kern table.
+    #[export]
+    pub full_font_features: bool,
     /// Ligatures as runs: [n, component_1 .. component_n, ligature, ...].
     #[export]
     #[var(usage_flags = [STORAGE])]
@@ -281,6 +285,7 @@ impl IResource for TypesetterFontAsset {
             glyph_data: PackedFloat32Array::new(),
             character_data: PackedInt32Array::new(),
             pair_adjustment_data: PackedFloat32Array::new(),
+            full_font_features: false,
             ligature_data: PackedInt32Array::new(),
             rt: Runtime::default(),
         }
@@ -391,6 +396,61 @@ impl TypesetterFontAsset {
             return None;
         }
         Self::create_font_asset(ff, sampling_point_size, atlas_padding, render_mode, atlas_width, atlas_height, 1, true)
+    }
+
+    /// Largest sampling point size at which all `characters` fit in one atlas
+    /// of this asset's size, padding and packing (the Font Asset Creator's
+    /// "Auto Sizing"). `fast` uses a coarser search (TMP's Fast packing).
+    #[func]
+    pub fn find_auto_point_size(&mut self, characters: GString, #[opt(default = false)] fast: bool) -> i32 {
+        self.ensure_runtime();
+        let Some(face) = self.rt.face.clone() else { return 0 };
+        let mut gids: Vec<u32> = characters.to_string().chars().filter_map(|c| face.glyph_id(c as u32)).collect();
+        gids.sort();
+        gids.dedup();
+        let s = self.settings();
+        atlas::auto_point_size(&face, &gids, &s, fast)
+    }
+
+    /// Sets the sampling point size (and face info) of an empty asset before
+    /// glyphs are added.
+    #[func]
+    pub fn set_sampling_point_size(&mut self, point_size: i32) {
+        self.ensure_runtime();
+        let Some(face) = self.rt.face.clone() else { return };
+        let mut fi = TypesetterFaceInfo::new_gd();
+        fi.bind_mut().fill_from(&face, point_size as f32);
+        self.face_info = Some(fi);
+        self.creation_settings.set("point_size", point_size);
+    }
+
+    /// Reads the font's OpenType features (GPOS pair adjustments, GSUB
+    /// ligatures) for the glyphs in the asset into the feature table, as the
+    /// Font Asset Creator's "Get Font Features" does. Later additions keep
+    /// using the full tables.
+    #[func]
+    pub fn update_font_feature_table(&mut self) {
+        self.ensure_runtime();
+        self.full_font_features = true;
+        let Some(face) = self.rt.face.clone() else { return };
+        // Pull in ligature glyphs for sequences the asset already covers.
+        let mut all: Vec<u32> = self.rt.glyphs.keys().copied().collect();
+        all.sort();
+        let ligs: Vec<u32> = face.ligatures_from(&all).iter().map(|l| l.ligature).filter(|g| !self.rt.glyphs.contains_key(g)).collect();
+        if !ligs.is_empty() {
+            self.load_pages();
+            let s = self.settings();
+            let mut pages = std::mem::take(&mut self.rt.pages);
+            let res = atlas::add_glyphs(&face, &ligs, &s, &mut pages);
+            self.rt.pages = pages;
+            for g in &res.glyphs {
+                self.rt.glyphs.insert(g.index, GlyphRec { index: g.index, width: g.width, height: g.height, bearing_x: g.bearing_x, bearing_y: g.bearing_y, advance: g.advance, rect: [g.rect.x, g.rect.y, g.rect.w, g.rect.h], scale: 1.0, atlas_index: g.atlas_index });
+            }
+            self.upload_pages();
+        }
+        self.refresh_features(&face, true);
+        self.store_tables();
+        self.base_mut().emit_changed();
     }
 
     /// The first atlas texture (TMP `atlasTexture`).
@@ -734,8 +794,9 @@ impl TypesetterFontAsset {
                 None => missing.push(c),
             }
         }
-        // Ligature glyphs for liga sequences fully covered by the asset's characters.
-        if include_font_features {
+        // Ligature glyphs for liga sequences fully covered by the asset's characters
+        // (only when the full OpenType feature table is in use).
+        if include_font_features && self.full_font_features {
             let mut all: Vec<u32> = self.rt.glyphs.keys().copied().chain(new_gids.iter().copied()).collect();
             all.sort();
             for lig in face.ligatures_from(&all) {
@@ -778,7 +839,8 @@ impl TypesetterFontAsset {
             self.rt.chars.insert(c, g);
         }
         if include_font_features {
-            self.refresh_features(&face);
+            let full = self.full_font_features;
+            self.refresh_features(&face, full);
         }
         self.store_tables();
         self.base_mut().emit_changed();
@@ -787,7 +849,7 @@ impl TypesetterFontAsset {
         missing
     }
 
-    fn refresh_features(&mut self, face: &Face) {
+    fn refresh_features(&mut self, face: &Face, full: bool) {
         let gids: Vec<u32> = {
             let mut v: Vec<u32> = self.rt.glyphs.keys().copied().collect();
             v.sort();
@@ -795,7 +857,8 @@ impl TypesetterFontAsset {
         };
         let s = self.get_sampling_point_size() as f64 / face.metrics().units_per_em.max(1.0);
         self.rt.pairs.clear();
-        for p in face.pair_adjustments(&gids) {
+        let pairs = if full { face.pair_adjustments(&gids) } else { face.legacy_pair_adjustments(&gids) };
+        for p in pairs {
             let f = &p.first_adj;
             let q = &p.second_adj;
             self.rt.pairs.insert(
@@ -804,6 +867,9 @@ impl TypesetterFontAsset {
             );
         }
         self.rt.ligatures.clear();
+        if !full {
+            return;
+        }
         for l in face.ligatures(&gids) {
             self.rt.ligatures.entry(l.components[0]).or_default().push((l.components[1..].to_vec(), l.ligature));
         }

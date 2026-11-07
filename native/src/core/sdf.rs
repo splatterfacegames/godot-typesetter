@@ -142,6 +142,96 @@ pub fn edt_signed(mask: &[bool], w: usize, h: usize) -> Vec<f64> {
         .collect()
 }
 
+/// Two-sided Euclidean distance between pixel centres: inside pixels get
+/// +distance to the nearest outside pixel, outside pixels −distance to the
+/// nearest inside pixel (no half-pixel correction).
+pub fn edt_two_sided(mask: &[bool], w: usize, h: usize) -> Vec<f64> {
+    let outside: Vec<bool> = mask.iter().map(|&m| !m).collect();
+    let to_inside = edt_2d(mask, w, h);
+    let to_outside = edt_2d(&outside, w, h);
+    mask.iter().enumerate().map(|(i, &m)| if m { to_outside[i].sqrt() } else { -to_inside[i].sqrt() }).collect()
+}
+
+/// `SDF` render mode, calibrated against TextMesh Pro's atlases: a 1×
+/// monochrome raster (centre-inclusive with dropout control), cropped to the
+/// bounding box of its set pixels plus `pad`, then a two-sided pixel-centre
+/// EDT. Returns (distances, width, height, crop x, crop y) where the crop
+/// offsets are relative to the input frame.
+pub fn binary_cropped(polys: &[Vec<P>], w: usize, h: usize, pad: usize) -> (Vec<f64>, usize, usize, usize, usize) {
+    let mask = raster::inside_mask_dropout(polys, w, h);
+    let (mut x0, mut y0, mut x1, mut y1) = (usize::MAX, usize::MAX, 0usize, 0usize);
+    for y in 0..h {
+        for x in 0..w {
+            if mask[y * w + x] {
+                x0 = x0.min(x);
+                y0 = y0.min(y);
+                x1 = x1.max(x + 1);
+                y1 = y1.max(y + 1);
+            }
+        }
+    }
+    if x0 == usize::MAX {
+        return (edt_two_sided(&mask, w, h), w, h, 0, 0);
+    }
+    let cx = x0.saturating_sub(pad);
+    let cy = y0.saturating_sub(pad);
+    let cw = (x1 + pad).min(w) - cx;
+    let ch = (y1 + pad).min(h) - cy;
+    let mut sub = vec![false; cw * ch];
+    for y in 0..ch {
+        for x in 0..cw {
+            sub[y * cw + x] = mask[(cy + y) * w + cx + x];
+        }
+    }
+    (edt_two_sided(&sub, cw, ch), cw, ch, cx, cy)
+}
+
+/// `SDF8/16/32`, calibrated against TextMesh Pro's atlases. `polys_k` is the
+/// outline in k× pixels inside a frame of `fw × fh` hi-res pixels that holds
+/// the glyph with at least `pad + 1` texels of margin. Monochrome raster at
+/// k×, two-sided EDT; the output is framed on the bounding box of the set
+/// hi-res pixels (size ceil(bbox / k) + 2·pad texels) and each texel takes
+/// the field at its block centre (mean of the four central hi-res pixels).
+/// Returns (distances in texels, width, height).
+pub fn edt_supersampled(polys_k: &[Vec<P>], fw: usize, fh: usize, k: usize, pad: usize) -> (Vec<f32>, usize, usize) {
+    let k = k.max(2);
+    let mask = raster::inside_mask_dropout(polys_k, fw, fh);
+    let (mut x0, mut y0, mut x1, mut y1) = (usize::MAX, usize::MAX, 0usize, 0usize);
+    for y in 0..fh {
+        for x in 0..fw {
+            if mask[y * fw + x] {
+                x0 = x0.min(x);
+                y0 = y0.min(y);
+                x1 = x1.max(x + 1);
+                y1 = y1.max(y + 1);
+            }
+        }
+    }
+    if x0 == usize::MAX {
+        return (Vec::new(), 0, 0);
+    }
+    let sd = edt_two_sided(&mask, fw, fh);
+    let w = (x1 - x0).div_ceil(k) + 2 * pad;
+    let h = (y1 - y0).div_ceil(k) + 2 * pad;
+    let at = |x: isize, y: isize| -> f64 {
+        let xc = x.clamp(0, fw as isize - 1) as usize;
+        let yc = y.clamp(0, fh as isize - 1) as usize;
+        sd[yc * fw + xc]
+    };
+    let mut out = vec![0.0f32; w * h];
+    let (ox, oy) = (x0 as isize - (k * pad) as isize, y0 as isize - (k * pad) as isize);
+    let c = (k / 2) as isize;
+    for y in 0..h {
+        for x in 0..w {
+            let bx = ox + (x * k) as isize + c - 1;
+            let by = oy + (y * k) as isize + c - 1;
+            let v = at(bx, by) + at(bx + 1, by) + at(bx, by + 1) + at(bx + 1, by + 1);
+            out[y * w + x] = (v * 0.25 / k as f64) as f32;
+        }
+    }
+    (out, w, h)
+}
+
 /// `SDF8/16/32`: binary raster at `k`× resolution, exact EDT, then each output
 /// texel is the mean of its k×k block of signed distances, scaled back to texels.
 pub fn edt_oversampled(polys: &[Vec<P>], w: usize, h: usize, k: usize) -> Vec<f32> {

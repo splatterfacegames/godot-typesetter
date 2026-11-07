@@ -106,6 +106,11 @@ uniform float mask_softness_x = 0.0;
 uniform float mask_softness_y = 0.0;
 #endif
 
+/// Edge ramp: the anti-aliased transition spans 1 / TS_EDGE_RAMP pixels.
+/// Calibrated against TextMesh Pro renders (tools/compare_renders.py): its
+/// edges are about 1.33 px wide, slightly softer than exact pixel coverage.
+const float TS_EDGE_RAMP = 0.75;
+
 /// Screen pixels per atlas texel from the UV derivatives.
 float ts_pixels_per_texel(vec2 uv, vec2 tex_size) {
 	vec2 dx = dFdx(uv * tex_size);
@@ -147,7 +152,7 @@ vec4 ts_shade(vec2 uv, vec4 vcolor, vec4 custom0, float time) {
 	float d = ts_sample(uv);
 	float ppt = ts_pixels_per_texel(uv, tex_size);
 	// Pixels per unit of normalised distance (the 0..1 range spans 2 × gradient_scale texels).
-	float scale = 2.0 * gradient_scale * ppt * (1.0 + sharpness);
+	float scale = 2.0 * gradient_scale * ppt * (1.0 + sharpness) * TS_EDGE_RAMP;
 	float weight = (bold ? weight_bold : weight_normal) * 0.25;
 	// Edge threshold after dilation (normalised units).
 	float bias = 0.5 - (face_dilate * 0.5 + weight) * scale_ratio_a;

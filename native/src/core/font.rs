@@ -284,10 +284,14 @@ impl Face {
 
     /// Hinted outline at `ppem` pixels per em, in pixel units (y-up).
     pub fn outline_hinted(&self, gid: u32, ppem: f32) -> Option<Outline> {
+        self.outline_hinted_with(gid, ppem, HintingOptions::default())
+    }
+
+    pub fn outline_hinted_with(&self, gid: u32, ppem: f32, opts: HintingOptions) -> Option<Outline> {
         let font = self.font().ok()?;
         let glyphs = font.outline_glyphs();
         let glyph = glyphs.get(GlyphId::new(gid))?;
-        let inst = HintingInstance::new(&glyphs, Size::new(ppem), LocationRef::default(), HintingOptions::default()).ok()?;
+        let inst = HintingInstance::new(&glyphs, Size::new(ppem), LocationRef::default(), opts).ok()?;
         let mut pen = OutlineBuilder::default();
         glyph.draw(DrawSettings::hinted(&inst, false), &mut pen).ok()?;
         Some(pen.finish())
@@ -329,10 +333,21 @@ impl Face {
     /// subtable that covers a pair wins, as OpenType specifies), falling back to
     /// the legacy `kern` table's format 0 pairs when the font has no GPOS kerning.
     pub fn pair_adjustments(&self, glyphs: &[u32]) -> Vec<PairAdjustment> {
+        self.pair_adjustments_from(glyphs, true)
+    }
+
+    /// Pair adjustments from the legacy `kern` table only (what TextMesh Pro's
+    /// runtime `TryAddCharacters(…, includeFontFeatures)` picks up; GPOS
+    /// kerning is read by the Font Asset Creator).
+    pub fn legacy_pair_adjustments(&self, glyphs: &[u32]) -> Vec<PairAdjustment> {
+        self.pair_adjustments_from(glyphs, false)
+    }
+
+    fn pair_adjustments_from(&self, glyphs: &[u32], use_gpos: bool) -> Vec<PairAdjustment> {
         let Ok(font) = self.font() else { return Vec::new() };
         let set: BTreeSet<u32> = glyphs.iter().copied().collect();
         let mut found: HashMap<(u32, u32), PairAdjustment> = HashMap::new();
-        let lookups = Self::feature_lookups_gpos(&font, Tag::new(b"kern"));
+        let lookups = if use_gpos { Self::feature_lookups_gpos(&font, Tag::new(b"kern")) } else { BTreeSet::new() };
         if let (Ok(gpos), false) = (font.gpos(), lookups.is_empty()) {
             if let Ok(ll) = gpos.lookup_list() {
                 for li in lookups {

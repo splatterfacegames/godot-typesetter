@@ -257,7 +257,8 @@ static func _format_arg(v: Variant, spec: String) -> String:
 			return str(int(v))
 		return str(v)
 	var x := float(v)
-	if spec.is_valid_int():
+	# "{1:2}" is a decimal count; a leading zero ("00") is a padding pattern.
+	if spec.is_valid_int() and not (spec.length() > 1 and spec.begins_with("0")):
 		return ("%." + spec + "f") % x
 	# Zero patterns: "00" (pad), "0.00" (decimals), "00.0".
 	var dot := spec.find(".")

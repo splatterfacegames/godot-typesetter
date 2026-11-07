@@ -129,8 +129,10 @@ func _ts_present() -> void:
 		_ts_items.append(it)
 	while _ts_items.size() > _ts_surfaces.size():
 		RenderingServer.free_rid(_ts_items.pop_back())
-	var clip := overflow_mode == TextOverflowModes.MASKING
-	var clip_rect := Rect2(Vector2(margin.x, margin.y), size - Vector2(margin.x + margin.z, margin.y + margin.w)) if clip else Rect2()
+	# TMP's UI text does not clip in Masking mode by itself (clipping comes from
+	# a parent mask); in Godot, clip with clip_contents on an ancestor.
+	var clip := false
+	var clip_rect := Rect2()
 	for i in _ts_surfaces.size():
 		var s: Dictionary = _ts_surfaces[i]
 		var it := _ts_items[i]
