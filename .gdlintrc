@@ -19,6 +19,7 @@ class-variable-name: _?[a-z][a-z0-9]*(_[a-z0-9]+)*
 comparison-with-itself: null
 constant-name: _?[A-Z][A-Z0-9]*(_[A-Z0-9]+)*
 disable:
+- max-public-methods
 - class-definitions-order
 - max-line-length
 - max-file-lines
