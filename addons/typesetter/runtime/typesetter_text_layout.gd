@@ -176,6 +176,7 @@ func _sync() -> void:
 	c.rich_text = s.rich_text
 	c.enable_kerning = s.enable_kerning
 	c.extra_padding = s.extra_padding
+	c.lookups_revision += 1
 	var sheet := TypesetterSettings.get_default_style_sheet()
 	c.style_lookup = sheet.to_lookup() if sheet != null else {}
 	var sprites: Array[Resource] = []

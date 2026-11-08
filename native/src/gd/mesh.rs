@@ -10,7 +10,8 @@
 
 use std::collections::BTreeMap;
 
-use godot::classes::mesh::{ArrayFormat, ArrayType};
+use godot::classes::mesh::{ArrayFormat, ArrayType, PrimitiveType};
+use godot::classes::{rendering_server, ArrayMesh, RenderingServer};
 use godot::prelude::*;
 
 use super::text::TypesetterTextCore;
@@ -71,7 +72,7 @@ fn glyph_uv(c: &CharInfo, pad: f32) -> [[f32; 2]; 4] {
 
 fn corner_colors(c: &CharInfo, global: Option<[[f32; 4]; 4]>) -> [[f32; 4]; 4] {
     // Gradient order: top-left, top-right, bottom-left, bottom-right → BL, TL, TR, BR.
-    let g = c.gradient.or(global);
+    let g = c.gradient.as_deref().copied().or(global);
     match g {
         Some([tl, tr, bl, br]) => {
             let m = |a: [f32; 4]| [a[0] * c.color[0], a[1] * c.color[1], a[2] * c.color[2], a[3] * c.color[3]];
@@ -133,10 +134,10 @@ pub fn build_quads(l: &Layout, core: &TypesetterTextCore) -> BTreeMap<SurfaceKey
         };
         let uv = if sprite { glyph_uv(c, 0.0) } else { glyph_uv(c, uv_pad) };
         let mut col = corner_colors(c, global_grad);
-        if sprite && !c.sprite.is_some_and(|s| s.tint) {
+        if sprite && !c.sprite.as_ref().is_some_and(|s| s.tint) {
             col = [[1.0, 1.0, 1.0, c.color[3]]; 4];
         }
-        if let Some(tint) = c.sprite.and_then(|s| s.color) {
+        if let Some(tint) = c.sprite.as_ref().and_then(|s| s.color) {
             col = [tint; 4];
         }
         let face = face_uvs(core, l, c, rect_w, rect_h);
@@ -228,4 +229,82 @@ pub fn to_arrays(q: &Quads, is_2d: bool) -> VarArray {
     }
     arrays.set(ArrayType::INDEX.ord() as usize, &idx.to_variant());
     arrays
+}
+
+/// Rewrites a 2D surface's vertex and attribute data in place when `mesh` already
+/// holds one triangle surface with the same vertex count (the index buffer is then
+/// identical). The byte layout comes from Godot's own stride and offset queries.
+/// Returns false when the surface has to be rebuilt instead.
+fn headless() -> bool {
+    thread_local! {
+        static HEADLESS: bool = godot::classes::DisplayServer::singleton().get_name().to_string() == "headless";
+    }
+    HEADLESS.with(|h| *h)
+}
+
+pub fn update_2d_in_place(mesh: &Gd<ArrayMesh>, q: &Quads, is_2d: bool) -> bool {
+    let n = q.positions.len();
+    // The headless display server's dummy renderer ignores region updates.
+    if !is_2d || n == 0 || mesh.get_surface_count() != 1 || headless() {
+        return false;
+    }
+    if mesh.surface_get_array_len(0) as usize != n || mesh.surface_get_primitive_type(0) != PrimitiveType::TRIANGLES {
+        return false;
+    }
+    let stored = mesh.surface_get_format(0);
+    if stored.ord() & ArrayFormat::FLAG_USE_2D_VERTICES.ord() == 0 {
+        return false;
+    }
+    let (vertex, attribute) = encode_2d(q, stored.ord());
+    let rid = mesh.get_rid();
+    let mut rs = RenderingServer::singleton();
+    rs.mesh_surface_update_vertex_region(rid, 0, 0, &vertex);
+    rs.mesh_surface_update_attribute_region(rid, 0, 0, &attribute);
+    let (mut lo, mut hi) = (Vector2::new(f32::MAX, f32::MAX), Vector2::new(f32::MIN, f32::MIN));
+    for p in &q.positions {
+        lo = Vector2::new(lo.x.min(p[0]), lo.y.min(p[1]));
+        hi = Vector2::new(hi.x.max(p[0]), hi.y.max(p[1]));
+    }
+    rs.mesh_set_custom_aabb(rid, Aabb::new(Vector3::new(lo.x, lo.y, 0.0), Vector3::new(hi.x - lo.x, hi.y - lo.y, 0.0)));
+    true
+}
+
+/// A 2D surface's vertex and attribute streams, laid out as Godot stores them for
+/// `format`: 2D positions as f32 pairs; colour as RGBA8; UV as f32 pairs; CUSTOM0/1
+/// as four f32 each.
+pub fn encode_2d(q: &Quads, format: u64) -> (PackedByteArray, PackedByteArray) {
+    let rs = RenderingServer::singleton();
+    let fmt = rendering_server::ArrayFormat::from_ord(format);
+    let n = q.positions.len();
+    let ni = n as i32;
+    let vs = rs.mesh_surface_get_format_vertex_stride(fmt, ni) as usize;
+    let at = rs.mesh_surface_get_format_attribute_stride(fmt, ni) as usize;
+    let off = |a: rendering_server::ArrayType| rs.mesh_surface_get_format_offset(fmt, ni, a.ord()) as usize;
+    let (o_v, o_c, o_uv, o_c0, o_c1) = (
+        off(rendering_server::ArrayType::VERTEX),
+        off(rendering_server::ArrayType::COLOR),
+        off(rendering_server::ArrayType::TEX_UV),
+        off(rendering_server::ArrayType::CUSTOM0),
+        off(rendering_server::ArrayType::CUSTOM1),
+    );
+    let mut v = vec![0u8; vs * n];
+    let mut a = vec![0u8; at * n];
+    let put = |buf: &mut [u8], at: usize, vals: &[f32]| {
+        for (k, x) in vals.iter().enumerate() {
+            buf[at + 4 * k..at + 4 * k + 4].copy_from_slice(&x.to_le_bytes());
+        }
+    };
+    for i in 0..n {
+        let p = q.positions[i];
+        put(&mut v, i * vs + o_v, &[p[0], p[1]]);
+        let c = q.colors[i];
+        let b = i * at;
+        for k in 0..4 {
+            a[b + o_c + k] = (c[k].clamp(0.0, 1.0) * 255.0).round() as u8;
+        }
+        put(&mut a, b + o_uv, &q.uvs[i]);
+        put(&mut a, b + o_c0, &q.custom0[i]);
+        put(&mut a, b + o_c1, &q.custom1[i]);
+    }
+    (PackedByteArray::from(v.as_slice()), PackedByteArray::from(a.as_slice()))
 }

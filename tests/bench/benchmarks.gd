@@ -7,8 +7,8 @@ extends SceneTree
 ## * layout: TypesetterTextCore.update() per 1 000 characters (plain, rich, wrapped).
 ## * mesh: layout + mesh build per 1 000 characters.
 ## * frame: per-frame cost of N labels whose text changes every frame,
-##   compared with Godot's Label and Label3D (needs a window for GPU timing;
-##   headless measures CPU only).
+##   compared with Godot's Label (needs a window for GPU timing; headless
+##   measures CPU only).
 
 var quick := false
 var results := {}
@@ -98,15 +98,6 @@ func _run() -> void:
 		flip[0] = not flip[0]
 		tl.text = plain if flip[0] else plain + " "
 		tl.force_mesh_update(true), reps)
-	var l3 := Label3D.new()
-	l3.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	l3.width = 600
-	l3.font_size = 24
-	root.add_child(l3)
-	results["godot_label3d_ms_per_1k_chars"] = _ms(func():
-		flip[0] = not flip[0]
-		l3.text = plain if flip[0] else plain + " "
-		l3.get_aabb(), reps)
 	var t3 := TypesetterText3D.new()
 	t3.font = asset
 	t3.font_size = 24
@@ -116,7 +107,16 @@ func _run() -> void:
 		flip[0] = not flip[0]
 		t3.text = plain if flip[0] else plain + " "
 		t3.force_mesh_update(true), reps)
-	# --- per-frame: 100 short labels changing every frame
+	# --- per-frame: 100 short labels changing every frame. Uncapped, and an empty
+	# frame's cost is subtracted, so neither side hides behind vsync.
+	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
+	Engine.max_fps = 0
+	var frames := 30 if quick else 120
+	var t_empty := Time.get_ticks_usec()
+	for f in frames:
+		await process_frame
+	var empty_ms := (Time.get_ticks_usec() - t_empty) / 1000.0 / frames
+	results["frame_ms_empty"] = empty_ms
 	var n := 100
 	var nodes: Array = []
 	for i in n:
@@ -126,13 +126,16 @@ func _run() -> void:
 		x.size = Vector2(200, 30)
 		root.add_child(x)
 		nodes.append(x)
-	var frames := 30 if quick else 120
 	var t0 := Time.get_ticks_usec()
 	for f in frames:
 		for i in n:
 			nodes[i].text = "Score %d · %d" % [f * 31 + i, i]
 		await process_frame
-	results["frame_ms_100_typesetter_labels_changing"] = (Time.get_ticks_usec() - t0) / 1000.0 / frames
+	results["frame_ms_100_typesetter_labels_changing"] = (Time.get_ticks_usec() - t0) / 1000.0 / frames - empty_ms
+	t0 = Time.get_ticks_usec()
+	for f in frames:
+		await process_frame
+	results["frame_ms_100_typesetter_labels_static"] = (Time.get_ticks_usec() - t0) / 1000.0 / frames - empty_ms
 	for x in nodes:
 		x.queue_free()
 	nodes.clear()
@@ -147,7 +150,11 @@ func _run() -> void:
 		for i in n:
 			nodes[i].text = "Score %d · %d" % [f * 31 + i, i]
 		await process_frame
-	results["frame_ms_100_godot_labels_changing"] = (Time.get_ticks_usec() - t0) / 1000.0 / frames
+	results["frame_ms_100_godot_labels_changing"] = (Time.get_ticks_usec() - t0) / 1000.0 / frames - empty_ms
+	t0 = Time.get_ticks_usec()
+	for f in frames:
+		await process_frame
+	results["frame_ms_100_godot_labels_static"] = (Time.get_ticks_usec() - t0) / 1000.0 / frames - empty_ms
 	# --- report
 	results["godot"] = Engine.get_version_info().string
 	results["renderer"] = RenderingServer.get_current_rendering_method()

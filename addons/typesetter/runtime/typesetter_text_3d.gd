@@ -568,6 +568,13 @@ var text_preprocessor: Object = null:
 		_ts_on_changed(&"text_preprocessor", 1)
 
 var _ts_core: TypesetterTextCore = TypesetterTextCore.new()
+# Settings other than the text were last copied into _ts_core at this state;
+# a text change then only sends the text (see _ts_sync_core).
+var _ts_settings_stale := true
+var _ts_synced_lookup_revision := -1
+var _ts_synced_bold_tag := false
+var _ts_material_cache := {}
+var _ts_material_cache_stale := true
 var _ts_dirty_layout := true
 var _ts_dirty_vertices := true
 var _ts_dirty_material := true
@@ -1331,6 +1338,8 @@ func _ts_on_changed(prop: StringName, kinds: int) -> void:
 	if kinds & 8:
 		text_changed.emit()
 		TypesetterSettings.events.text_changed.emit(self)
+	if prop != &"text":
+		_ts_settings_stale = true
 	if prop == &"font":
 		_ts_font_material_instance = null
 	_ts_property_hook(prop)
@@ -1344,6 +1353,8 @@ func _ts_watch(old: Resource, new: Resource) -> void:
 
 
 func _ts_on_resource_changed() -> void:
+	_ts_settings_stale = true
+	_ts_material_cache_stale = true
 	_ts_set_layout_dirty()
 
 
@@ -1358,6 +1369,8 @@ func _ts_set_vertices_dirty() -> void:
 
 
 func _ts_set_material_dirty() -> void:
+	_ts_settings_stale = true
+	_ts_material_cache_stale = true
 	_ts_dirty_material = true
 	_ts_queue_update()
 
@@ -1407,7 +1420,9 @@ func _ts_update(force: bool) -> void:
 			_ts_clear_geometry()
 			return
 		_ts_build_surfaces()
-		pre_render_text.emit(_ts_core.get_text_info())
+		# Building text_info for a signal nobody hears is most of an update's cost.
+		if not pre_render_text.get_connections().is_empty():
+			pre_render_text.emit(_ts_core.get_text_info())
 		_ts_present()
 
 
@@ -1423,6 +1438,26 @@ func _ts_source_text() -> String:
 ## Copies this node's settings into a core (the node's own, or a scratch core
 ## for get_preferred_values / get_text_info).
 func _ts_sync_core(c: TypesetterTextCore, source: String) -> void:
+	var bold_tag := _ts_style_has_bold()
+	if (
+		c == _ts_core
+		and not _ts_settings_stale
+		and _ts_synced_lookup_revision == TypesetterTextUtilities.revision
+		and _ts_synced_bold_tag == bold_tag
+	):
+		# Only the text (and what layout reads from the node's size) changed.
+		c.text = source
+		c.rect_size = _ts_container_size()
+		c.pivot = _ts_container_pivot()
+		if _ts_linked_parent != null and _ts_linked_start >= 0:
+			c.first_visible_character = _ts_linked_start
+		return
+	if c == _ts_core:
+		_ts_settings_stale = false
+		_ts_material_cache_stale = true
+		c.lookups_revision += 1
+		_ts_synced_lookup_revision = TypesetterTextUtilities.revision
+		_ts_synced_bold_tag = bold_tag
 	c.text = source
 	c.font = _ts_font()
 	c.alignment = horizontal_alignment | vertical_alignment
@@ -1500,6 +1535,7 @@ func _ts_after_layout() -> void:
 
 
 func _ts_set_linked_source(parent: Node, start: int) -> void:
+	_ts_settings_stale = true
 	if start < 0:
 		_ts_linked_parent = parent
 		_ts_linked_start = 1 << 30
@@ -1511,6 +1547,9 @@ func _ts_set_linked_source(parent: Node, start: int) -> void:
 
 func _ts_build_surfaces() -> void:
 	_ts_surfaces = _ts_build_meshes_impl()
+	if _ts_material_cache_stale:
+		_ts_material_cache.clear()
+		_ts_material_cache_stale = false
 	var base := _ts_base_material()
 	var owner := _ts_font()
 	for s in _ts_surfaces:
@@ -1518,7 +1557,13 @@ func _ts_build_surfaces() -> void:
 		var surface_base: Material = s.get("material", base)
 		if surface_base == null:
 			surface_base = base
-		var m := TypesetterMaterialManager.get_surface_material(surface_base, owner, s.get("font"), 0, _ts_is_3d(), _ts_overlay(), tex, s.get("sprite", false))
+		# Resolving a surface material is the costliest step of a text change that
+		# keeps the same fonts; reuse it until the material or font changes.
+		var key := [surface_base, s.get("font"), tex, s.get("sprite", false)]
+		var m: Material = _ts_material_cache.get(key)
+		if m == null:
+			m = TypesetterMaterialManager.get_surface_material(surface_base, owner, s.get("font"), 0, _ts_is_3d(), _ts_overlay(), tex, s.get("sprite", false))
+			_ts_material_cache[key] = m
 		s["material_used"] = m
 
 

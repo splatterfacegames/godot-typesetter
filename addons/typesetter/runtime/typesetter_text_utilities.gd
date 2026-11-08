@@ -15,6 +15,8 @@ enum CaretPosition { NONE, LEFT, RIGHT }
 
 static var _lookups := {}
 static var _overrides := {}
+## Bumped whenever the name lookups change, so text nodes know to re-read them.
+static var revision := 0
 
 
 ## Converts a viewport position to the text node's local space; returns null
@@ -334,9 +336,11 @@ static func gradient_lookup() -> Dictionary:
 static func clear_lookups() -> void:
 	_lookups.clear()
 	_overrides.clear()
+	revision += 1
 
 
 ## Replaces a name lookup ("font" or "gradient") with `values`, instead of
 ## scanning the asset folder. For assets built at runtime.
 static func set_lookup_override(kind: String, values: Dictionary) -> void:
 	_overrides[kind] = values
+	revision += 1

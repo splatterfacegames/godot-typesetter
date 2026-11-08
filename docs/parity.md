@@ -116,23 +116,29 @@ These rules came from Unity's output, and each is covered by a case.
 
 ## Performance
 
-`godot --path . -s res://tests/bench/benchmarks.gd` writes `bench/results`.
+`godot --path . -s res://tests/bench/benchmarks.gd` writes `bench/results`. Measured
+on an Intel Xeon W-2135 with Vulkan, frames uncapped, an empty frame's cost subtracted.
 
 | Measure | Result |
 | --- | --- |
 | Atlas, ASCII at 90 pt: SMOOTH, RASTER | 4 ms |
 | Atlas: SDF, SDFAA | 7 to 8 ms |
-| Atlas: MTSDF | 107 ms |
-| Atlas: SDF8, SDF16, SDF32 | 228 ms, 1.1 s, 5.0 s |
-| Layout per 1,000 characters | 1.3 to 1.4 ms |
-| Layout and mesh per 1,000 characters | 1.9 ms |
-| `TypesetterLabel` text change per 1,000 characters | 4.8 ms |
-| `TypesetterText3D` text change per 1,000 characters | 5.6 ms |
-| Godot `Label` text change per 1,000 characters | 0.55 ms |
-| 100 labels changing every frame, Typesetter | 30 ms per frame |
-| 100 labels changing every frame, `Label` | 16.3 ms per frame (held at the 60 Hz cap, so a ceiling rather than its true cost) |
+| Atlas: MTSDF | 95 ms |
+| Atlas: SDF8, SDF16, SDF32 | 276 ms, 1.2 s, 5.5 s |
+| Layout per 1,000 characters | 0.28 to 0.48 ms |
+| Layout and mesh per 1,000 characters | 0.9 ms |
+| `TypesetterLabel` text change per 1,000 characters | 0.71 ms |
+| Godot `Label` text change per 1,000 characters | 0.54 ms |
+| `TypesetterText3D` text change per 1,000 characters | 2.1 ms |
+| 100 short labels changing every frame, Typesetter | 6.9 ms per frame |
+| 100 short labels changing every frame, `Label` | 3.4 ms per frame |
+| 100 static labels, either | no measurable cost |
 
-A label's text change costs far more than its layout and mesh. The difference is
-mostly GDScript syncing settings into the core on each update, which is the first
-place to optimise. Text that changes rarely isn't affected. The `Label3D` benchmark
-isn't reported because it returned before Godot had done the work.
+Long text now costs about what `Label` does. Short labels that change every frame
+still cost about twice as much: each update has a fixed cost of roughly 45 µs, about
+half of it GDScript in the node and half building and uploading the mesh. When the
+vertex count is unchanged (a counter, say) the mesh is rewritten in place rather than
+rebuilt. `TypesetterText3D` doesn't use that path yet.
+
+`tests/bench/profile_update.gd` and `tests/bench/profile_labels.gd` break an update
+into its phases.

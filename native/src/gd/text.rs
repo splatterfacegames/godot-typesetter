@@ -5,7 +5,10 @@
 //! Coordinates: 2D cores use Godot's y-down Control space with the origin at the
 //! rect's top-left; 3D cores use y-up local space centred on the pivot.
 
+use std::cell::RefCell;
 use std::collections::HashMap;
+
+use rustc_hash::FxHashMap;
 
 use godot::classes::mesh::{ArrayFormat, ArrayType, PrimitiveType};
 use godot::classes::{ArrayMesh, Material, Resource, Texture2D};
@@ -32,6 +35,11 @@ pub struct GdFonts {
     pub missing_glyph: u32,
     /// Code points not found in any font asset.
     pub missing: Vec<u32>,
+    // Lookups repeat for every character; the provider lives for one layout, so
+    // caching them here can't go stale.
+    face_cache: RefCell<Vec<Option<FaceMetrics>>>,
+    glyph_cache: FxHashMap<(u32, u32), Option<(u32, GlyphInfo)>>,
+    kern_cache: RefCell<FxHashMap<(u32, u32, u32), Option<[f32; 8]>>>,
 }
 
 impl GdFonts {
@@ -49,6 +57,9 @@ impl GdFonts {
             allow_dynamic: true,
             missing_glyph: 0,
             missing: Vec::new(),
+            face_cache: RefCell::new(Vec::new()),
+            glyph_cache: FxHashMap::default(),
+            kern_cache: RefCell::new(FxHashMap::default()),
         };
         f.register(primary);
         f
@@ -110,8 +121,8 @@ impl GdFonts {
     }
 }
 
-impl FontProvider for GdFonts {
-    fn face(&self, font: u32) -> FaceMetrics {
+impl GdFonts {
+    fn face_uncached(&self, font: u32) -> FaceMetrics {
         let Some(a) = self.assets.get(font as usize) else { return FaceMetrics::default() };
         let b = a.bind();
         let mut fm = FaceMetrics { point_size: 90.0, bold_style: b.bold_style, atlas_padding: b.atlas_padding as f32, tab_size: b.tab_size, bold_spacing: b.bold_spacing, normal_spacing_offset: b.normal_spacing_offset, italic_style: b.italic_style, ..Default::default() };
@@ -136,7 +147,7 @@ impl FontProvider for GdFonts {
         fm
     }
 
-    fn glyph(&mut self, font: u32, cp: u32) -> Option<(u32, GlyphInfo)> {
+    fn glyph_uncached(&mut self, font: u32, cp: u32) -> Option<(u32, GlyphInfo)> {
         let primary = self.assets.get(font as usize)?.clone();
         let mut seen = Vec::new();
         if let Some((a, g)) = self.search(primary, cp, &mut seen) {
@@ -155,13 +166,13 @@ impl FontProvider for GdFonts {
                 self.missing.push(cp);
             }
             if self.missing_glyph != 0 {
-                return self.glyph(font, self.missing_glyph);
+                return self.glyph_uncached(font, self.missing_glyph);
             }
         }
         None
     }
 
-    fn kerning(&self, font: u32, left: u32, right: u32) -> Option<[f32; 8]> {
+    fn kerning_uncached(&self, font: u32, left: u32, right: u32) -> Option<[f32; 8]> {
         let mut a = self.assets.get(font as usize)?.clone();
         // Measured: TextMesh Pro reads new pairs from the font only for the text's
         // primary font; <font> and fallback assets keep to their stored tables.
@@ -171,6 +182,40 @@ impl FontProvider for GdFonts {
         }
         let pair = a.bind_mut().dynamic_pair(left, right);
         pair
+    }
+
+}
+
+impl FontProvider for GdFonts {
+    fn face(&self, font: u32) -> FaceMetrics {
+        if let Some(Some(f)) = self.face_cache.borrow().get(font as usize) {
+            return *f;
+        }
+        let f = self.face_uncached(font);
+        let mut cache = self.face_cache.borrow_mut();
+        if cache.len() <= font as usize {
+            cache.resize(font as usize + 1, None);
+        }
+        cache[font as usize] = Some(f);
+        f
+    }
+
+    fn glyph(&mut self, font: u32, cp: u32) -> Option<(u32, GlyphInfo)> {
+        if let Some(g) = self.glyph_cache.get(&(font, cp)) {
+            return *g;
+        }
+        let g = self.glyph_uncached(font, cp);
+        self.glyph_cache.insert((font, cp), g);
+        g
+    }
+
+    fn kerning(&self, font: u32, left: u32, right: u32) -> Option<[f32; 8]> {
+        if let Some(k) = self.kern_cache.borrow().get(&(font, left, right)) {
+            return *k;
+        }
+        let k = self.kerning_uncached(font, left, right);
+        self.kern_cache.borrow_mut().insert((font, left, right), k);
+        k
     }
 
     fn font_by_name(&mut self, name: &str) -> Option<u32> {
@@ -406,6 +451,10 @@ pub struct TypesetterTextCore {
     /// Substitute for characters missing from every font asset (0: U+25A1, then '?').
     #[var]
     pub missing_glyph_character: i64,
+    /// Bump after changing fonts, fallbacks, lookups or settings that layout reads
+    /// through them, so the next update rebuilds its font caches.
+    #[var]
+    pub lookups_revision: i64,
     /// CJK line-breaking rules: characters that may not start / end a line.
     #[var]
     pub leading_characters: GString,
@@ -430,6 +479,8 @@ pub struct TypesetterTextCore {
     pub layout: Option<Layout>,
     pub missing: Vec<(u32, i32)>,
     pub fonts: Option<GdFonts>,
+    fonts_revision: i64,
+    fonts_font: Option<InstanceId>,
     pub info_cache: Option<Gd<TypesetterTextInfo>>,
     pub dirty: bool,
 }
@@ -486,6 +537,7 @@ impl IRefCounted for TypesetterTextCore {
             text_style_opening: GString::new(),
             text_style_closing: GString::new(),
             missing_glyph_character: 0,
+            lookups_revision: 0,
             leading_characters: GString::new(),
             following_characters: GString::new(),
             override_color_tags: false,
@@ -496,6 +548,8 @@ impl IRefCounted for TypesetterTextCore {
             layout: None,
             missing: Vec::new(),
             fonts: None,
+            fonts_revision: -1,
+            fonts_font: None,
             info_cache: None,
             dirty: true,
         }
@@ -516,35 +570,48 @@ impl TypesetterTextCore {
             self.layout = None;
             return;
         };
-        let mut fonts = GdFonts::new(font);
-        fonts.global_fallbacks = self.fallback_font_assets.iter_shared().collect();
-        for (k, v) in self.font_lookup.iter_shared() {
-            if let Ok(a) = v.try_to::<Gd<TypesetterFontAsset>>() {
-                fonts.by_name.insert(k.to_string(), a);
-            }
-        }
-        for (k, v) in self.material_lookup.iter_shared() {
-            if let Ok(m) = v.try_to::<Gd<Material>>() {
-                fonts.material_names.insert(k.to_string(), fonts.materials.len() as u32 + 1);
-                fonts.materials.push(m);
-            }
-        }
-        for (k, v) in self.style_lookup.iter_shared() {
-            if let Ok(a) = v.try_to::<PackedStringArray>() {
-                let o = a.get(0).map(|s| s.to_string()).unwrap_or_default();
-                let c = a.get(1).map(|s| s.to_string()).unwrap_or_default();
-                fonts.styles.insert(k.to_string().to_ascii_lowercase(), (o, c));
-            }
-        }
-        for (k, v) in self.gradient_lookup.iter_shared() {
-            if let Ok(a) = v.try_to::<PackedColorArray>() {
-                if a.len() >= 4 {
-                    fonts.gradients.insert(k.to_string(), [c4(a[0]), c4(a[1]), c4(a[2]), c4(a[3])]);
+        // The provider (and its glyph and kerning caches) carries over between
+        // layouts until the node reports changed settings or lookups.
+        let font_id = font.instance_id();
+        let reuse = self.fonts.is_some() && self.fonts_revision == self.lookups_revision && self.fonts_font == Some(font_id);
+        let mut fonts = if reuse {
+            let mut f = self.fonts.take().unwrap();
+            f.missing.clear();
+            f
+        } else {
+            let mut fonts = GdFonts::new(font.clone());
+            fonts.global_fallbacks = self.fallback_font_assets.iter_shared().collect();
+            for (k, v) in self.font_lookup.iter_shared() {
+                if let Ok(a) = v.try_to::<Gd<TypesetterFontAsset>>() {
+                    fonts.by_name.insert(k.to_string(), a);
                 }
             }
-        }
-        fonts.sprites = self.sprite_assets.iter_shared().collect();
-        fonts.missing_glyph = self.missing_glyph_character.max(0) as u32;
+            for (k, v) in self.material_lookup.iter_shared() {
+                if let Ok(m) = v.try_to::<Gd<Material>>() {
+                    fonts.material_names.insert(k.to_string(), fonts.materials.len() as u32 + 1);
+                    fonts.materials.push(m);
+                }
+            }
+            for (k, v) in self.style_lookup.iter_shared() {
+                if let Ok(a) = v.try_to::<PackedStringArray>() {
+                    let o = a.get(0).map(|s| s.to_string()).unwrap_or_default();
+                    let c = a.get(1).map(|s| s.to_string()).unwrap_or_default();
+                    fonts.styles.insert(k.to_string().to_ascii_lowercase(), (o, c));
+                }
+            }
+            for (k, v) in self.gradient_lookup.iter_shared() {
+                if let Ok(a) = v.try_to::<PackedColorArray>() {
+                    if a.len() >= 4 {
+                        fonts.gradients.insert(k.to_string(), [c4(a[0]), c4(a[1]), c4(a[2]), c4(a[3])]);
+                    }
+                }
+            }
+            fonts.sprites = self.sprite_assets.iter_shared().collect();
+            fonts.missing_glyph = self.missing_glyph_character.max(0) as u32;
+            fonts
+        };
+        self.fonts_revision = self.lookups_revision;
+        self.fonts_font = Some(font_id);
         let s = self.settings();
         let opening = self.text_style_opening.to_string();
         let closing = self.text_style_closing.to_string();
@@ -767,11 +834,15 @@ impl TypesetterTextCore {
             }
         }
         for (si, (key, q)) in quads.into_iter().enumerate() {
-            let arrays = super::mesh::to_arrays(&q, !self.world_space);
-            let fmt = super::mesh::format(!self.world_space);
             let mut mesh = into.get(si).unwrap_or_else(ArrayMesh::new_gd);
-            mesh.clear_surfaces();
-            mesh.add_surface_from_arrays_ex(PrimitiveType::TRIANGLES, &arrays).flags(fmt).done();
+            // Same vertex count as last time (a changing number, say): rewrite the
+            // vertex data in place instead of rebuilding the surface.
+            if !super::mesh::update_2d_in_place(&mesh, &q, !self.world_space) {
+                let arrays = super::mesh::to_arrays(&q, !self.world_space);
+                let fmt = super::mesh::format(!self.world_space);
+                mesh.clear_surfaces();
+                mesh.add_surface_from_arrays_ex(PrimitiveType::TRIANGLES, &arrays).flags(fmt).done();
+            }
             let mut d = VarDictionary::new();
             d.set("mesh", &mesh.to_variant());
             if key.sprite {
@@ -830,6 +901,7 @@ impl TypesetterTextCore {
     #[func]
     pub fn update_vertex_data(&mut self, meshes: Array<Gd<ArrayMesh>>) {
         let Some(info) = self.info_cache.clone() else { return };
+        info.bind().ensure_with(self, TypesetterTextInfo::MESHES);
         let infos: Vec<Gd<super::info::TypesetterMeshInfo>> = info.bind().mesh_info.iter_shared().collect();
         let is_2d = !self.world_space;
         for (i, mi) in infos.iter().enumerate() {

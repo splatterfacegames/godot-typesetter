@@ -584,6 +584,7 @@ fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let filter = args.iter().find(|a| !a.starts_with("--")).cloned().unwrap_or_default();
     let verbose = args.iter().any(|a| a == "--verbose");
+    let bench = args.iter().any(|a| a == "--bench");
     let root: PathBuf = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
     let mut names: Vec<String> = std::fs::read_dir(root.join("bench/cases"))
         .unwrap()
@@ -612,6 +613,19 @@ fn main() {
         }
         let text = case["text"].as_str().unwrap_or("");
         let l = layout::layout(text, &s, &mut prov);
+        if bench {
+            // Best of 10 batches: the machine may be busy with other work.
+            let reps = 100;
+            let mut us = f64::INFINITY;
+            for _ in 0..10 {
+                let t = std::time::Instant::now();
+                for _ in 0..reps {
+                    std::hint::black_box(layout::layout(text, &s, &mut prov));
+                }
+                us = us.min(t.elapsed().as_secs_f64() * 1e6 / reps as f64);
+            }
+            println!("bench {name}: {:.1} us per layout, {} characters, {:.3} ms per 1k", us, l.characters.len(), us / l.characters.len().max(1) as f64);
+        }
         let mut cmp = Cmp::default();
         compare(&l, &truth, &mut cmp, "", s.first_visible_character.max(0) as usize);
         if let Some(lt) = truth.get("linked") {

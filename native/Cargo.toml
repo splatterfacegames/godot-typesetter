@@ -10,12 +10,21 @@ publish = false
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-godot = { version = "0.5.5", features = ["api-4-7"] }
+godot = "0.5.5"
 skrifa = "0.49"
 fdsm = "0.8"
 image = { version = "0.25", default-features = false }
 nalgebra = "0.34"
-rayon = "1.12"
+rayon = { version = "1.12", optional = true }
+rustc-hash = "2.1"
+
+[features]
+default = ["native"]
+# Desktop builds: the 4.7 API and parallel atlas generation.
+native = ["godot/api-4-7", "dep:rayon"]
+# Web builds (python native/build.py --web): gdext's single-threaded wasm support.
+# api-custom reads the API from the Godot binary named by GODOT4_BIN.
+web = ["godot/api-custom", "godot/experimental-wasm", "godot/experimental-wasm-nothreads", "godot/lazy-function-tables"]
 
 [dev-dependencies]
 serde_json = "1"

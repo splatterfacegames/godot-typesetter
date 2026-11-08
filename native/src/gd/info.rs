@@ -2,6 +2,9 @@
 //! mesh records, in node space (2D: y-down from the rect's top-left; 3D: y-up
 //! about the pivot).
 
+use std::cell::Cell;
+
+use godot::obj::WithBaseField;
 use godot::prelude::*;
 
 use super::font_asset::TypesetterFontAsset;
@@ -134,6 +137,10 @@ record!(
 );
 
 /// Everything about the laid-out text (TMP_TextInfo).
+///
+/// Counts are filled at once. The character, word, line, link, page and mesh
+/// arrays are built the first time they are read and then kept, so a layout
+/// that nobody inspects costs nothing extra.
 #[derive(GodotClass)]
 #[class(init, base = RefCounted)]
 pub struct TypesetterTextInfo {
@@ -152,28 +159,111 @@ pub struct TypesetterTextInfo {
     pub line_count: i32,
     #[var]
     pub page_count: i32,
-    #[var]
+    #[var(get = get_material_count, set = set_material_count)]
     pub material_count: i32,
-    #[var]
+    #[var(get = get_character_info, set = set_character_info)]
     pub character_info: Array<Gd<TypesetterCharacterInfo>>,
-    #[var]
+    #[var(get = get_word_info, set = set_word_info)]
     pub word_info: Array<Gd<TypesetterWordInfo>>,
-    #[var]
+    #[var(get = get_line_info, set = set_line_info)]
     pub line_info: Array<Gd<TypesetterLineInfo>>,
-    #[var]
+    #[var(get = get_link_info, set = set_link_info)]
     pub link_info: Array<Gd<TypesetterLinkInfo>>,
-    #[var]
+    #[var(get = get_page_info, set = set_page_info)]
     pub page_info: Array<Gd<TypesetterPageInfo>>,
-    #[var]
+    #[var(get = get_mesh_info, set = set_mesh_info)]
     pub mesh_info: Array<Gd<TypesetterMeshInfo>>,
+    /// The core whose layout this describes (weak: the core caches this object).
+    source: Option<InstanceId>,
+    /// Sections already built (bits: SEC_*).
+    built: Cell<u8>,
 }
+
+const SEC_CHARS: u8 = 1;
+const SEC_WORDS: u8 = 2;
+const SEC_LINES: u8 = 4;
+const SEC_LINKS: u8 = 8;
+const SEC_PAGES: u8 = 16;
+const SEC_MESHES: u8 = 32;
 
 #[godot_api]
 impl TypesetterTextInfo {
+    #[func]
+    pub fn get_character_info(&self) -> Array<Gd<TypesetterCharacterInfo>> {
+        self.ensure_from_source(SEC_CHARS);
+        self.character_info.clone()
+    }
+    #[func]
+    pub fn set_character_info(&mut self, value: Array<Gd<TypesetterCharacterInfo>>) {
+        self.character_info = value;
+        self.mark(SEC_CHARS);
+    }
+    #[func]
+    pub fn get_word_info(&self) -> Array<Gd<TypesetterWordInfo>> {
+        self.ensure_from_source(SEC_WORDS);
+        self.word_info.clone()
+    }
+    #[func]
+    pub fn set_word_info(&mut self, value: Array<Gd<TypesetterWordInfo>>) {
+        self.word_info = value;
+        self.mark(SEC_WORDS);
+    }
+    #[func]
+    pub fn get_line_info(&self) -> Array<Gd<TypesetterLineInfo>> {
+        self.ensure_from_source(SEC_LINES);
+        self.line_info.clone()
+    }
+    #[func]
+    pub fn set_line_info(&mut self, value: Array<Gd<TypesetterLineInfo>>) {
+        self.line_info = value;
+        self.mark(SEC_LINES);
+    }
+    #[func]
+    pub fn get_link_info(&self) -> Array<Gd<TypesetterLinkInfo>> {
+        self.ensure_from_source(SEC_LINKS);
+        self.link_info.clone()
+    }
+    #[func]
+    pub fn set_link_info(&mut self, value: Array<Gd<TypesetterLinkInfo>>) {
+        self.link_info = value;
+        self.mark(SEC_LINKS);
+    }
+    #[func]
+    pub fn get_page_info(&self) -> Array<Gd<TypesetterPageInfo>> {
+        self.ensure_from_source(SEC_PAGES);
+        self.page_info.clone()
+    }
+    #[func]
+    pub fn set_page_info(&mut self, value: Array<Gd<TypesetterPageInfo>>) {
+        self.page_info = value;
+        self.mark(SEC_PAGES);
+    }
+    #[func]
+    pub fn get_mesh_info(&self) -> Array<Gd<TypesetterMeshInfo>> {
+        self.ensure_from_source(SEC_MESHES);
+        self.mesh_info.clone()
+    }
+    #[func]
+    pub fn set_mesh_info(&mut self, value: Array<Gd<TypesetterMeshInfo>>) {
+        self.mesh_info = value;
+        self.mark(SEC_MESHES);
+    }
+
+    #[func]
+    pub fn get_material_count(&self) -> i32 {
+        self.ensure_from_source(SEC_MESHES);
+        self.mesh_info.len() as i32
+    }
+
+    #[func]
+    pub fn set_material_count(&mut self, value: i32) {
+        self.material_count = value;
+    }
+
     /// Text of word `index` (TMP_WordInfo.GetWord()).
     #[func]
     pub fn get_word(&self, index: i32) -> GString {
-        self.word_info.get(index as usize).map(|w| w.bind().text.clone()).unwrap_or_default()
+        self.get_word_info().get(index as usize).map(|w| w.bind().text.clone()).unwrap_or_default()
     }
 
     /// Restores mesh_info vertex data from the last layout (TMP's
@@ -181,7 +271,7 @@ impl TypesetterTextInfo {
     #[func]
     pub fn get_cached_mesh_info(&self) -> Array<Gd<TypesetterMeshInfo>> {
         let mut out = Array::new();
-        for m in self.mesh_info.iter_shared() {
+        for m in self.get_mesh_info().iter_shared() {
             let b = m.bind();
             let mut c = TypesetterMeshInfo::new_gd();
             {
@@ -201,31 +291,78 @@ impl TypesetterTextInfo {
     }
 }
 
+impl TypesetterTextInfo {
+    pub const MESHES: u8 = SEC_MESHES;
+
+    fn mark(&self, bits: u8) {
+        self.built.set(self.built.get() | bits);
+    }
+
+    /// Builds missing sections from the source core, when it is still alive and
+    /// not dropped (calls from inside the core use `ensure_with`).
+    fn ensure_from_source(&self, bits: u8) {
+        if self.built.get() & bits == bits {
+            return;
+        }
+        let Some(id) = self.source else { return };
+        let Ok(core) = Gd::<TypesetterTextCore>::try_from_instance_id(id) else { return };
+        let b = core.bind();
+        self.ensure_with(&b, bits);
+    }
+
+    /// Builds missing sections from `core`'s current layout. The arrays are
+    /// shared handles, so filling a clone fills the field.
+    pub fn ensure_with(&self, core: &TypesetterTextCore, bits: u8) {
+        let missing = bits & !self.built.get();
+        if missing == 0 {
+            return;
+        }
+        self.mark(missing);
+        let Some(l) = core.layout.as_ref() else { return };
+        if missing & (SEC_CHARS | SEC_MESHES) != 0 {
+            let quads = super::mesh::build_quads(l, core);
+            if missing & SEC_MESHES != 0 {
+                let mut out = self.mesh_info.clone();
+                build_meshes(core, &quads, &mut out);
+            }
+            if missing & SEC_CHARS != 0 {
+                let mut out = self.character_info.clone();
+                build_chars(core, l, &quads, &mut out);
+            }
+        }
+        if missing & SEC_WORDS != 0 {
+            let mut out = self.word_info.clone();
+            build_words(l, &mut out);
+        }
+        if missing & SEC_LINES != 0 {
+            let mut out = self.line_info.clone();
+            build_lines(core, l, &mut out);
+        }
+        if missing & SEC_LINKS != 0 {
+            let mut out = self.link_info.clone();
+            build_links(l, &mut out);
+        }
+        if missing & SEC_PAGES != 0 {
+            let mut out = self.page_info.clone();
+            build_pages(core, l, &mut out);
+        }
+    }
+}
+
 fn color(c: [f32; 4]) -> Color {
     Color::from_rgba(c[0], c[1], c[2], c[3])
 }
 
-pub fn make_text_info(core: &TypesetterTextCore) -> Gd<TypesetterTextInfo> {
-    let mut info = TypesetterTextInfo::new_gd();
-    let Some(l) = core.layout.as_ref() else { return info };
-    let fonts = core.fonts.as_ref();
+fn flip_of(core: &TypesetterTextCore) -> impl Fn(f32) -> f32 {
     let flip = !core.world_space;
-    let fy = |y: f32| if flip { -y } else { y };
-    let v3 = |x: f32, y: f32| Vector3::new(x, fy(y), 0.0);
-    let text: Vec<char> = core.text.to_string().chars().collect();
+    move |y: f32| if flip { -y } else { y }
+}
 
-    // Surfaces: material reference index and per-character vertex index.
-    let quads = super::mesh::build_quads(l, core);
-    let mut mat_of = vec![0i32; l.characters.len()];
-    let mut vtx_of = vec![0i32; l.characters.len()];
-    let mut meshes: Array<Gd<TypesetterMeshInfo>> = Array::new();
-    for (si, (key, q)) in quads.iter().enumerate() {
-        for (qi, &owner) in q.owners.iter().enumerate() {
-            if owner >= 0 {
-                mat_of[owner as usize] = si as i32;
-                vtx_of[owner as usize] = (qi * 4) as i32;
-            }
-        }
+type QuadMap = std::collections::BTreeMap<super::mesh::SurfaceKey, super::mesh::Quads>;
+
+fn build_meshes(core: &TypesetterTextCore, quads: &QuadMap, out: &mut Array<Gd<TypesetterMeshInfo>>) {
+    let fonts = core.fonts.as_ref();
+    for (key, q) in quads.iter() {
         let mut m = TypesetterMeshInfo::new_gd();
         {
             let mut b = m.bind_mut();
@@ -241,10 +378,24 @@ pub fn make_text_info(core: &TypesetterTextCore) -> Gd<TypesetterTextInfo> {
                 b.texture = t.map(|t| t.to_variant()).unwrap_or_default();
             }
         }
-        meshes.push(&m);
+        out.push(&m);
     }
+}
 
-    let mut chars: Array<Gd<TypesetterCharacterInfo>> = Array::new();
+fn build_chars(core: &TypesetterTextCore, l: &crate::core::layout::Layout, quads: &QuadMap, out: &mut Array<Gd<TypesetterCharacterInfo>>) {
+    let fonts = core.fonts.as_ref();
+    let fy = flip_of(core);
+    let v3 = |x: f32, y: f32| Vector3::new(x, fy(y), 0.0);
+    let mut mat_of = vec![0i32; l.characters.len()];
+    let mut vtx_of = vec![0i32; l.characters.len()];
+    for (si, q) in quads.values().enumerate() {
+        for (qi, &owner) in q.owners.iter().enumerate() {
+            if owner >= 0 {
+                mat_of[owner as usize] = si as i32;
+                vtx_of[owner as usize] = (qi * 4) as i32;
+            }
+        }
+    }
     for (i, c) in l.characters.iter().enumerate() {
         let mut o = TypesetterCharacterInfo::new_gd();
         {
@@ -282,9 +433,11 @@ pub fn make_text_info(core: &TypesetterTextCore) -> Gd<TypesetterTextInfo> {
             b.is_visible = c.is_visible;
             b.link_index = c.link;
         }
-        chars.push(&o);
+        out.push(&o);
     }
-    let mut words: Array<Gd<TypesetterWordInfo>> = Array::new();
+}
+
+fn build_words(l: &crate::core::layout::Layout, out: &mut Array<Gd<TypesetterWordInfo>>) {
     for w in &l.words {
         let mut o = TypesetterWordInfo::new_gd();
         {
@@ -298,9 +451,12 @@ pub fn make_text_info(core: &TypesetterTextCore) -> Gd<TypesetterTextInfo> {
                 .collect();
             b.text = s.as_str().into();
         }
-        words.push(&o);
+        out.push(&o);
     }
-    let mut lines: Array<Gd<TypesetterLineInfo>> = Array::new();
+}
+
+fn build_lines(core: &TypesetterTextCore, l: &crate::core::layout::Layout, out: &mut Array<Gd<TypesetterLineInfo>>) {
+    let fy = flip_of(core);
     for ln in &l.lines {
         let mut o = TypesetterLineInfo::new_gd();
         {
@@ -334,9 +490,11 @@ pub fn make_text_info(core: &TypesetterTextCore) -> Gd<TypesetterTextInfo> {
             let (y0, y1) = (fy(ln.extents_min.y), fy(ln.extents_max.y));
             b.line_extents = Rect2::new(Vector2::new(ln.extents_min.x, y0.min(y1)), Vector2::new(ln.extents_max.x - ln.extents_min.x, (y1 - y0).abs()));
         }
-        lines.push(&o);
+        out.push(&o);
     }
-    let mut links: Array<Gd<TypesetterLinkInfo>> = Array::new();
+}
+
+fn build_links(l: &crate::core::layout::Layout, out: &mut Array<Gd<TypesetterLinkInfo>>) {
     for lk in &l.links {
         let mut o = TypesetterLinkInfo::new_gd();
         {
@@ -351,9 +509,12 @@ pub fn make_text_info(core: &TypesetterTextCore) -> Gd<TypesetterTextInfo> {
                 .collect();
             b.link_text = s.as_str().into();
         }
-        links.push(&o);
+        out.push(&o);
     }
-    let mut pages: Array<Gd<TypesetterPageInfo>> = Array::new();
+}
+
+fn build_pages(core: &TypesetterTextCore, l: &crate::core::layout::Layout, out: &mut Array<Gd<TypesetterPageInfo>>) {
+    let fy = flip_of(core);
     for p in &l.pages {
         let mut o = TypesetterPageInfo::new_gd();
         {
@@ -364,9 +525,14 @@ pub fn make_text_info(core: &TypesetterTextCore) -> Gd<TypesetterTextInfo> {
             b.base_line = fy(p.base_line);
             b.descender = fy(p.descender);
         }
-        pages.push(&o);
+        out.push(&o);
     }
-    let _ = text;
+}
+
+/// textInfo for `core`'s current layout: counts now, sections on first read.
+pub fn make_text_info(core: &TypesetterTextCore) -> Gd<TypesetterTextInfo> {
+    let mut info = TypesetterTextInfo::new_gd();
+    let Some(l) = core.layout.as_ref() else { return info };
     {
         let mut b = info.bind_mut();
         b.character_count = l.characters.len() as i32;
@@ -376,13 +542,7 @@ pub fn make_text_info(core: &TypesetterTextCore) -> Gd<TypesetterTextInfo> {
         b.link_count = l.links.len() as i32;
         b.line_count = l.lines.len() as i32;
         b.page_count = l.pages.len() as i32;
-        b.material_count = meshes.len() as i32;
-        b.character_info = chars;
-        b.word_info = words;
-        b.line_info = lines;
-        b.link_info = links;
-        b.page_info = pages;
-        b.mesh_info = meshes;
+        b.source = Some(core.to_gd().instance_id());
     }
     info
 }

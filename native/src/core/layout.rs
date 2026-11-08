@@ -279,7 +279,7 @@ pub struct CharInfo {
     pub element_type: ElementType,
     pub font: u32,
     pub glyph: u32,
-    pub sprite: Option<SpriteInfo>,
+    pub sprite: Option<Box<SpriteInfo>>,
     pub material_reference_index: i32,
     pub point_size: f32,
     pub line_number: i32,
@@ -305,7 +305,7 @@ pub struct CharInfo {
     pub style: u32,
     pub is_visible: bool,
     pub link: i32,
-    pub gradient: Option<[[f32; 4]; 4]>,
+    pub gradient: Option<Box<[[f32; 4]; 4]>>,
     pub rotation: f32,
     pub material: u32,
     // internal
@@ -437,7 +437,7 @@ impl Layout {
 
 // ------------------------------------------------------------------ elements
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 struct StyleState {
     font: u32,
     size: f32,
@@ -483,9 +483,10 @@ struct Elem {
     len: usize,
     /// A `</cspace>` follows this element.
     close_cspace: bool,
-    style: StyleState,
+    /// Index into `Parsed::styles` (styles change only at tags, so characters share them).
+    style: u32,
     cmd_before: Vec<Cmd>,
-    sprite: Option<SpriteInfo>,
+    sprite: Option<Box<SpriteInfo>>,
 }
 
 fn base_style(s: &Settings) -> StyleState {
@@ -531,6 +532,7 @@ fn resolve_len(v: &str, font_size: f32, pct_base: f32, unit_scale: f32) -> Optio
 }
 
 struct Parsed {
+    styles: Vec<StyleState>,
     elems: Vec<Elem>,
     links: Vec<LinkInfo>,
 }
@@ -539,6 +541,7 @@ struct Parsed {
 /// produces elements. Tags whose value does not parse (or whose font / style /
 /// sprite / gradient cannot be found) are emitted as literal text.
 struct ParseState<'a> {
+    styles: Vec<StyleState>,
     s: &'a Settings,
     src: Vec<char>,
     base: StyleState,
@@ -562,7 +565,8 @@ pub fn tag_hash(s: &str) -> i32 {
 
 impl<'a> ParseState<'a> {
     fn push_char(&mut self, cp: u32, index: usize, len: usize) {
-        self.elems.push(Elem { cp, src: index, len, style: self.st.clone(), cmd_before: std::mem::take(&mut self.pending), sprite: None, close_cspace: false });
+        let style = self.intern_style();
+        self.elems.push(Elem { cp, src: index, len, style, cmd_before: std::mem::take(&mut self.pending), sprite: None, close_cspace: false });
     }
 
     /// Emits the source text of `span` as literal characters.
@@ -574,6 +578,14 @@ impl<'a> ParseState<'a> {
                 None => self.push_char(c, k, 1),
             }
         }
+    }
+
+    /// The current style's index in `styles`, adding it when it changed.
+    fn intern_style(&mut self) -> u32 {
+        if self.styles.last() != Some(&self.st) {
+            self.styles.push(self.st.clone());
+        }
+        (self.styles.len() - 1) as u32
     }
 
     fn save(&mut self, k: &'static str) {
@@ -955,9 +967,12 @@ impl<'a> ParseState<'a> {
                     cp: 0xE000 + sp.index,
                     src: ti,
                     len: tl,
-                    style: est,
+                    style: {
+                        self.styles.push(est);
+                        (self.styles.len() - 1) as u32
+                    },
                     cmd_before: std::mem::take(&mut self.pending),
-                    sprite: Some(sp),
+                    sprite: Some(Box::new(sp)),
                     close_cspace: false,
                 });
             }
@@ -992,12 +1007,15 @@ fn parse<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size: f32) ->
         size,
         unit: if s.world_space { 0.1 } else { 1.0 },
         stacks: HashMap::new(),
-        elems: Vec::new(),
+        // Elements are large; growing the vector one push at a time costs more than
+        // the parse itself.
+        elems: Vec::with_capacity(text.len()),
         pending: Vec::new(),
         links: Vec::new(),
         open_link: None,
         empty_link_start: None,
         style_stack: Vec::new(),
+        styles: Vec::with_capacity(16),
     };
     p.base.size = size;
     for tok in richtext::tokenize_with(text, s.rich_text, s.parse_ctrl_characters) {
@@ -1007,7 +1025,7 @@ fn parse<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size: f32) ->
         let first = p.links[li].link_text_first_character_index as usize;
         p.links[li].link_text_length = (p.elems.len() - first) as i32;
     }
-    Parsed { elems: p.elems, links: p.links }
+    Parsed { elems: p.elems, links: p.links, styles: p.styles }
 }
 
 // ------------------------------------------------------------------ layout
@@ -1102,7 +1120,7 @@ fn shape<F: FontProvider>(p: &Parsed, s: &Settings, fonts: &mut F, text_size: f3
     let mut out: Vec<Shaped> = Vec::with_capacity(p.elems.len());
     let mut prev: Option<(u32, u32)> = None; // (font, glyph)
     for e in &p.elems {
-        let st = &e.style;
+        let st = &p.styles[e.style as usize];
         let (cp, small) = apply_case(e.cp, st.style);
         let mut size = st.size * st.sup_sub_scale;
         if small {
@@ -1130,7 +1148,7 @@ fn shape<F: FontProvider>(p: &Parsed, s: &Settings, fonts: &mut F, text_size: f3
             highlight_color: st.mark.unwrap_or([0.0; 4]),
             highlight_padding: st.mark_padding,
             link: st.link,
-            gradient: st.gradient,
+            gradient: st.gradient.map(Box::new),
             rotation: st.rotate,
             material: st.material,
             no_break: st.nobr,
@@ -1152,7 +1170,7 @@ fn shape<F: FontProvider>(p: &Parsed, s: &Settings, fonts: &mut F, text_size: f3
         // reports as the element's character.
         let invisible_ctrl = is_nl || matches!(cp, 0x200B | 0xAD | 0x2060 | 0x200C | 0x200D);
         let mut found = if e.sprite.is_some() || invisible_ctrl { None } else { fonts.glyph(st.font, cp) };
-        let mut esprite = e.sprite;
+        let mut esprite = e.sprite.as_deref().copied();
         if e.sprite.is_none() && !invisible_ctrl && found.is_none() && !is_space(cp) && cp >= 0x20 {
             if let Some(sp) = fonts.sprite_by_unicode(cp) {
                 esprite = Some(sp);
@@ -1166,7 +1184,7 @@ fn shape<F: FontProvider>(p: &Parsed, s: &Settings, fonts: &mut F, text_size: f3
         }
         if let Some(sp) = esprite {
             info.element_type = ElementType::Sprite;
-            info.sprite = Some(sp);
+            info.sprite = Some(Box::new(sp));
             // Sprites scale to the current font's ascent line (TMP behaviour: sprite
             // height relative to the font).
             let fs = size / face0.point_size.max(1.0) * unit;
@@ -1653,15 +1671,21 @@ fn layout_adj<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size: f3
     // Preferred width: the widest line when only line feeds break lines
     // (indents, <pos>, <space>, tabs and tag margins included).
     let pref_w_full = {
-        let mut ush = sh.clone();
-        for e in ush.iter_mut().filter(|e| e.info.character == 0xAD) {
+        // Runs on `sh` itself and restores what it changes: break_lines only rewrites
+        // advances, and soft hyphens are hidden for the pass. Cloning every element
+        // instead costs more than the pass.
+        let saved: Vec<f32> = sh.iter().map(|e| e.advance).collect();
+        let shy: Vec<(usize, bool, bool)> =
+            sh.iter().enumerate().filter(|(_, e)| e.info.character == 0xAD).map(|(i, e)| (i, e.info.is_visible, e.info.is_space)).collect();
+        for &(i, _, _) in &shy {
             // Soft hyphens only show where a line breaks.
-            e.advance = 0.0;
-            e.info.is_visible = false;
-            e.info.is_space = true;
+            sh[i].advance = 0.0;
+            sh[i].info.is_visible = false;
+            sh[i].info.is_space = true;
         }
         let nowrap = Settings { wrap: Wrap::NoWrap, ..s.clone() };
-        let (ul, uxs) = break_lines(&mut ush, &nowrap, f32::INFINITY);
+        let (ul, uxs) = break_lines(&mut sh, &nowrap, f32::INFINITY);
+        let ush = &sh;
         let mut best = 0.0f32;
         for ln in &ul {
             let mut end = 0.0f32;
@@ -1679,6 +1703,13 @@ fn layout_adj<F: FontProvider>(text: &str, s: &Settings, fonts: &mut F, size: f3
             }
             let (lm, rm) = ush.get(ln.start).map(|e| (e.margin_l, e.margin_r)).unwrap_or((0.0, 0.0));
             best = best.max(end + lm + rm);
+        }
+        for (e, a) in sh.iter_mut().zip(saved) {
+            e.advance = a;
+        }
+        for (i, vis, space) in shy {
+            sh[i].info.is_visible = vis;
+            sh[i].info.is_space = space;
         }
         best + ml + mr
     };

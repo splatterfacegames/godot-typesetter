@@ -13,6 +13,7 @@
 //! * distance encoding: texel = 0.5 + d / (2 * gradient_scale), d in texels,
 //!   positive inside, gradient_scale = padding + 1.
 
+#[cfg(feature = "native")]
 use rayon::prelude::*;
 
 use super::font::Face;
@@ -250,7 +251,11 @@ pub struct GenResult {
 /// when `multi_atlas`, as needed). Glyphs that fit nowhere are reported missing.
 /// Larger glyphs are placed first for better packing.
 pub fn add_glyphs(face: &Face, gids: &[u32], s: &GenSettings, pages: &mut Vec<AtlasPage>) -> GenResult {
+    // Glyphs render in parallel on desktop; the single-threaded web build cannot spawn threads.
+    #[cfg(feature = "native")]
     let mut bitmaps: Vec<GlyphBitmap> = gids.par_iter().filter_map(|&g| render_glyph(face, g, s)).collect();
+    #[cfg(not(feature = "native"))]
+    let mut bitmaps: Vec<GlyphBitmap> = gids.iter().filter_map(|&g| render_glyph(face, g, s)).collect();
     bitmaps.sort_by(|a, b| (b.h, b.w, a.record.index).cmp(&(a.h, a.w, b.record.index)));
     let mut glyphs = Vec::with_capacity(bitmaps.len());
     let mut missing = Vec::new();

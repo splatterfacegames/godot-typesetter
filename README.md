@@ -36,9 +36,9 @@ Measured against Unity TextMesh Pro:
 - atlases differ by 0.05 to 0.90 of 255, depending on render mode;
 - rendered pixels differ by a median of 0.075 of 255 over 227 cases.
 
-Glow and bevel are fitted approximations. Web builds aren't supported yet because the
-Rust core doesn't target them. A label costs more than Godot's `Label` when its text
-changes every frame. [docs/parity.md](docs/parity.md) lists every known gap.
+Glow and bevel are fitted approximations. A text change costs about what Godot's
+`Label` does for long text, and about twice as much for short labels that change every
+frame. [docs/parity.md](docs/parity.md) lists every known gap.
 
 ## Building
 
@@ -96,7 +96,8 @@ results.
 
 `godot --path . -s res://tests/bench/benchmarks.gd` measures atlas generation, layout
 per 1,000 characters and per-frame cost against `Label`. On an Intel Xeon W-2135, layout
-takes 1.3 to 1.4 ms per 1,000 characters and an ASCII SDFAA atlas takes 8 ms.
+takes 0.3 to 0.5 ms per 1,000 characters, a full text change 0.7 ms (Label: 0.54 ms) and
+an ASCII SDFAA atlas 8 ms.
 
 ## Inspiration and provenance
 
