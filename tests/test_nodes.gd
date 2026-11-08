@@ -184,3 +184,23 @@ func test_font_material_edits_reach_the_drawn_material() -> void:
 	t.force_mesh_update(true)
 	var used3 := t._ts_surfaces[0].material_used as ShaderMaterial
 	assert_almost_eq(float(used3.get_shader_parameter(&"outline_width")), 0.3, 0.0001)
+
+
+func test_size_and_spacing_changes_apply_without_touching_the_atlas() -> void:
+	var l := _label("Resize me")
+	l.size = Vector2(1200, 400)
+	l.force_mesh_update()
+	var updates := [0]
+	font_asset.atlas_updated.connect(func() -> void: updates[0] += 1)
+	var w := l.get_rendered_values().x
+	l.font_size = l.font_size * 2.0
+	l.force_mesh_update()
+	assert_almost_eq(l.get_rendered_values().x, w * 2.0, w * 0.05, "the new size is laid out")
+	var w2 := l.get_rendered_values().x
+	l.character_spacing = 20.0
+	l.force_mesh_update()
+	assert_gt(l.get_rendered_values().x, w2, "spacing is applied")
+	l.color = Color.RED
+	l.force_mesh_update()
+	assert_eq(l.text_info.character_info[0].color, Color.RED)
+	assert_eq(updates[0], 0, "no atlas work for size, spacing or colour")

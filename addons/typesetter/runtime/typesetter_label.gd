@@ -553,6 +553,21 @@ var _ts_core: TypesetterTextCore = TypesetterTextCore.new()
 # Settings other than the text were last copied into _ts_core at this state;
 # a text change then only sends the text (see _ts_sync_core).
 var _ts_settings_stale := true
+# Properties the core takes as they are and that touch nothing else (padding,
+# materials, lookups): a change is sent on its own instead of forcing a full sync,
+# so animating font size or spacing costs about what a text change does.
+const _TS_CORE_DIRECT := {
+	&"font_size": true, &"font_size_min": true, &"font_size_max": true,
+	&"character_width_adjustment": true, &"line_spacing_adjustment": true, &"color": true,
+	&"override_color_tags": true, &"character_spacing": true, &"word_spacing": true,
+	&"line_spacing": true, &"paragraph_spacing": true, &"word_wrapping_ratios": true,
+	&"text_wrapping_mode": true, &"page_to_display": true, &"horizontal_mapping": true,
+	&"vertical_mapping": true, &"mapping_uv_line_offset": true, &"margin": true,
+	&"use_max_visible_descender": true, &"is_right_to_left_text": true,
+	&"first_visible_character": true, &"max_visible_characters": true,
+	&"max_visible_words": true, &"max_visible_lines": true,
+}
+var _ts_pending_core := {}
 var _ts_synced_lookup_revision := -1
 var _ts_synced_bold_tag := false
 var _ts_material_cache := {}
@@ -1327,7 +1342,9 @@ func _ts_on_changed(prop: StringName, kinds: int) -> void:
 	if kinds & 8:
 		text_changed.emit()
 		TypesetterSettings.events.text_changed.emit(self)
-	if prop != &"text":
+	if _TS_CORE_DIRECT.has(prop):
+		_ts_pending_core[prop] = true
+	elif prop != &"text":
 		_ts_settings_stale = true
 	if prop == &"font":
 		_ts_font_material_instance = null
@@ -1428,6 +1445,7 @@ func _ts_try_fast_text_update() -> bool:
 		return false
 	if _ts_synced_lookup_revision != TypesetterTextUtilities.revision or _ts_synced_bold_tag != _ts_style_has_bold():
 		return false
+	_ts_flush_pending_core(_ts_core)
 	if not _ts_core.refresh_text(_ts_source_text(), _ts_container_size(), _ts_update_meshes()):
 		# Laid out already: finish on the normal path without a second layout.
 		_ts_dirty_layout = false
@@ -1463,7 +1481,8 @@ func _ts_sync_core(c: TypesetterTextCore, source: String) -> void:
 		and _ts_synced_lookup_revision == TypesetterTextUtilities.revision
 		and _ts_synced_bold_tag == bold_tag
 	):
-		# Only the text (and what layout reads from the node's size) changed.
+		# Only the text, the size and core-only properties changed.
+		_ts_flush_pending_core(c)
 		c.text = source
 		c.rect_size = _ts_container_size()
 		c.pivot = _ts_container_pivot()
@@ -1524,6 +1543,14 @@ func _ts_sync_core(c: TypesetterTextCore, source: String) -> void:
 	var base := 1.0 if bitmap else 1.25
 	c.mesh_padding = base + (0.0 if bitmap else TypesetterShaderUtilities.get_padding(_ts_base_material(), extra_padding, _ts_style_has_bold()))
 	_ts_sync_core_generated(c)
+	if c == _ts_core:
+		_ts_pending_core.clear()
+
+
+func _ts_flush_pending_core(c: TypesetterTextCore) -> void:
+	for prop in _ts_pending_core:
+		c.set(prop, get(prop))
+	_ts_pending_core.clear()
 
 
 func _ts_style_has_bold() -> bool:

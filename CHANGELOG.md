@@ -7,6 +7,13 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Performance
+
+- Changing font size, spacing, margins, colour or the visible-character limits at
+  runtime no longer forces a full settings sync: 100 labels resizing every frame went
+  from 19.6 to 3.3 ms (Godot's `Label`: 4.3 ms). Size changes never touch the atlas;
+  `tests/bench/font_size_bench.gd` measures both.
+
 ## [0.1.0] - 2026-11-08
 
 First release: signed-distance-field text for Godot 4.7 with TextMesh Pro's feature
