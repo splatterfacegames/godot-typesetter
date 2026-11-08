@@ -27,6 +27,23 @@ func _label(asset: TypesetterFontAsset, t: String) -> TypesetterLabel:
 	return l
 
 
+func _text3d(asset: TypesetterFontAsset, t: String) -> TypesetterText3D:
+	var n := TypesetterText3D.new()
+	n.font = asset
+	n.font_size = 30
+	root.add_child(n)
+	n.text = t
+	n.force_mesh_update(true)
+	return n
+
+
+func _counts(n: TypesetterText3D) -> Array:
+	var out := []
+	for i in n._ts_mesh.get_surface_count():
+		out.append(n._ts_mesh.surface_get_array_len(i))
+	return out
+
+
 func _run() -> void:
 	var ff := FontFile.new()
 	ff.load_dynamic_font("res://tests/fonts/Inter-Regular.ttf")
@@ -52,5 +69,20 @@ func _run() -> void:
 				if va[k] != vb[k]:
 					print("  first attribute difference at byte %d: %d vs %d" % [k, va[k], vb[k]])
 					break
+	for pair in PAIRS:
+		var a3 := _text3d(asset, pair[0])
+		var before := _counts(a3)
+		a3.text = pair[1]
+		a3.force_mesh_update(true)
+		var b3 := _text3d(asset, pair[1])
+		var same3 := _counts(a3) == _counts(b3)
+		for i in mini(a3._ts_mesh.get_surface_count(), b3._ts_mesh.get_surface_count()):
+			var sa := RenderingServer.mesh_get_surface(a3._ts_mesh.get_rid(), i)
+			var sb := RenderingServer.mesh_get_surface(b3._ts_mesh.get_rid(), i)
+			same3 = same3 and sa.vertex_data == sb.vertex_data and sa.attribute_data == sb.attribute_data
+		var path3 := "in place" if before == _counts(b3) else "rebuilt"
+		print("3D %-37s %-9s %s" % ["%s -> %s" % pair, path3, "same" if same3 else "DIFFERENT"])
+		if not same3:
+			failed += 1
 	print("FAILED %d" % failed if failed else "ALL SAME")
 	quit(1 if failed else 0)

@@ -825,15 +825,8 @@ impl TypesetterTextCore {
     #[func]
     pub fn build_meshes(&mut self, into: Array<Gd<ArrayMesh>>) -> Array<VarDictionary> {
         let mut out: Array<VarDictionary> = Array::new();
-        let Some(l) = self.layout.as_ref() else { return out };
-        let Some(fonts) = self.fonts.as_ref() else { return out };
-        let mut quads = super::mesh::build_quads(l, self);
-        if self.geometry_sorting_order == 1 {
-            for q in quads.values_mut() {
-                reverse_quads(q);
-            }
-        }
-        for (si, (key, q)) in quads.into_iter().enumerate() {
+        let Some(surfaces) = self.surfaces() else { return out };
+        for (si, (key, q)) in surfaces.into_iter().enumerate() {
             let mut mesh = into.get(si).unwrap_or_else(ArrayMesh::new_gd);
             // Same vertex count as last time (a changing number, say): rewrite the
             // vertex data in place instead of rebuilding the surface.
@@ -842,31 +835,10 @@ impl TypesetterTextCore {
                 let fmt = super::mesh::format(!self.world_space);
                 mesh.clear_surfaces();
                 mesh.add_surface_from_arrays_ex(PrimitiveType::TRIANGLES, &arrays).flags(fmt).done();
+                super::mesh::clear_custom_aabb(&mesh);
             }
-            let mut d = VarDictionary::new();
+            let mut d = self.surface_dict(&key, q.positions.len());
             d.set("mesh", &mesh.to_variant());
-            if key.sprite {
-                let ai = (key.font - 1_000_000) as usize;
-                if let Some(res) = fonts.sprites.get(ai) {
-                    let tex: Variant = res.get("sprite_sheet");
-                    d.set("texture", &tex);
-                    d.set("font", &res.to_variant());
-                }
-                d.set("sprite", true);
-            } else if let Some(a) = fonts.assets.get(key.font as usize) {
-                let b = a.bind();
-                let tex: Option<Gd<Texture2D>> = b.atlas_textures.get(key.atlas as usize);
-                d.set("texture", &tex.map(|t| t.to_variant()).unwrap_or_default());
-                d.set("font", &a.to_variant());
-                d.set("sprite", false);
-            }
-            if key.material > 0 {
-                if let Some(m) = fonts.materials.get(key.material as usize - 1) {
-                    d.set("material", &m.to_variant());
-                }
-            }
-            d.set("vertex_count", q.positions.len() as i64);
-            d.set("kind", key.kind as i64);
             out.push(&d);
         }
         out
@@ -877,19 +849,25 @@ impl TypesetterTextCore {
     /// with "surface" set to the surface index instead of "mesh".
     #[func]
     pub fn build_mesh(&mut self, mut mesh: Gd<ArrayMesh>) -> Array<VarDictionary> {
-        mesh.clear_surfaces();
-        let dicts = self.build_meshes(Array::new());
         let mut out: Array<VarDictionary> = Array::new();
-        for mut d in dicts.iter_shared() {
-            let Some(m) = d.get("mesh").and_then(|v| v.try_to::<Gd<ArrayMesh>>().ok()) else { continue };
-            if m.get_surface_count() == 0 {
-                continue;
+        let Some(surfaces) = self.surfaces() else {
+            mesh.clear_surfaces();
+            return out;
+        };
+        let is_2d = !self.world_space;
+        // Same surfaces with the same vertex counts as last time: rewrite in place.
+        let quads: Vec<&super::mesh::Quads> = surfaces.iter().map(|(_, q)| q).collect();
+        if !super::mesh::update_in_place(&mesh, &quads, is_2d) {
+            mesh.clear_surfaces();
+            let fmt = super::mesh::format(is_2d);
+            for (_, q) in &surfaces {
+                let arrays = super::mesh::to_arrays(q, is_2d);
+                mesh.add_surface_from_arrays_ex(PrimitiveType::TRIANGLES, &arrays).flags(fmt).done();
             }
-            let arrays = m.surface_get_arrays(0);
-            let fmt = m.surface_get_format(0);
-            let si = mesh.get_surface_count();
-            mesh.add_surface_from_arrays_ex(PrimitiveType::TRIANGLES, &arrays).flags(fmt).done();
-            d.remove("mesh");
+            super::mesh::clear_custom_aabb(&mesh);
+        }
+        for (si, (key, q)) in surfaces.iter().enumerate() {
+            let mut d = self.surface_dict(key, q.positions.len());
             d.set("surface", si as i64);
             out.push(&d);
         }
@@ -1016,3 +994,47 @@ fn reverse_quads(q: &mut super::mesh::Quads) {
 // Silence unused import warnings for types only referenced in docs.
 #[allow(dead_code)]
 fn _types(_: ArrayFormat, _: ArrayType) {}
+
+impl TypesetterTextCore {
+    /// The current layout's quads, one entry per surface, in draw order.
+    fn surfaces(&self) -> Option<Vec<(super::mesh::SurfaceKey, super::mesh::Quads)>> {
+        let l = self.layout.as_ref()?;
+        self.fonts.as_ref()?;
+        let mut quads = super::mesh::build_quads(l, self);
+        if self.geometry_sorting_order == 1 {
+            for q in quads.values_mut() {
+                reverse_quads(q);
+            }
+        }
+        Some(quads.into_iter().collect())
+    }
+
+    /// What a surface draws with: texture, font or sprite asset, material, size.
+    fn surface_dict(&self, key: &super::mesh::SurfaceKey, vertex_count: usize) -> VarDictionary {
+        let mut d = VarDictionary::new();
+        let Some(fonts) = self.fonts.as_ref() else { return d };
+        if key.sprite {
+            let ai = (key.font - 1_000_000) as usize;
+            if let Some(res) = fonts.sprites.get(ai) {
+                let tex: Variant = res.get("sprite_sheet");
+                d.set("texture", &tex);
+                d.set("font", &res.to_variant());
+            }
+            d.set("sprite", true);
+        } else if let Some(a) = fonts.assets.get(key.font as usize) {
+            let b = a.bind();
+            let tex: Option<Gd<Texture2D>> = b.atlas_textures.get(key.atlas as usize);
+            d.set("texture", &tex.map(|t| t.to_variant()).unwrap_or_default());
+            d.set("font", &a.to_variant());
+            d.set("sprite", false);
+        }
+        if key.material > 0 {
+            if let Some(m) = fonts.materials.get(key.material as usize - 1) {
+                d.set("material", &m.to_variant());
+            }
+        }
+        d.set("vertex_count", vertex_count as i64);
+        d.set("kind", key.kind as i64);
+        d
+    }
+}

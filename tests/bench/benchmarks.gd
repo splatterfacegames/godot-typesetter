@@ -155,6 +155,44 @@ func _run() -> void:
 	for f in frames:
 		await process_frame
 	results["frame_ms_100_godot_labels_static"] = (Time.get_ticks_usec() - t0) / 1000.0 / frames - empty_ms
+	# --- per-frame, 3D: 100 short texts changing every frame, against Label3D.
+	for x in nodes:
+		x.queue_free()
+	nodes.clear()
+	var cam := Camera3D.new()
+	cam.position = Vector3(0, 0, 30)
+	root.add_child(cam)
+	for i in n:
+		var t := TypesetterText3D.new()
+		t.font = asset
+		t.font_size = 6
+		t.rect_size = Vector2(40, 8)
+		t.position = Vector3((i % 10) * 4.0 - 18.0, (i / 10) * 2.0 - 9.0, 0)
+		root.add_child(t)
+		nodes.append(t)
+	t0 = Time.get_ticks_usec()
+	for f in frames:
+		for i in n:
+			nodes[i].text = "Score %d · %d" % [f * 31 + i, i]
+		await process_frame
+	results["frame_ms_100_typesetter_text3d_changing"] = (Time.get_ticks_usec() - t0) / 1000.0 / frames - empty_ms
+	for x in nodes:
+		x.queue_free()
+	nodes.clear()
+	for i in n:
+		var t := Label3D.new()
+		t.font_size = 18
+		t.pixel_size = 0.02
+		t.position = Vector3((i % 10) * 4.0 - 18.0, (i / 10) * 2.0 - 9.0, 0)
+		root.add_child(t)
+		nodes.append(t)
+	t0 = Time.get_ticks_usec()
+	for f in frames:
+		for i in n:
+			nodes[i].text = "Score %d · %d" % [f * 31 + i, i]
+		await process_frame
+	results["frame_ms_100_godot_label3d_changing"] = (Time.get_ticks_usec() - t0) / 1000.0 / frames - empty_ms
+	cam.queue_free()
 	# --- report
 	results["godot"] = Engine.get_version_info().string
 	results["renderer"] = RenderingServer.get_current_rendering_method()

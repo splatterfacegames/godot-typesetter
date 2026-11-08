@@ -243,36 +243,123 @@ fn headless() -> bool {
 }
 
 pub fn update_2d_in_place(mesh: &Gd<ArrayMesh>, q: &Quads, is_2d: bool) -> bool {
-    let n = q.positions.len();
-    // The headless display server's dummy renderer ignores region updates.
-    if !is_2d || n == 0 || mesh.get_surface_count() != 1 || headless() {
+    is_2d && update_in_place(mesh, &[q], true)
+}
+
+/// Rewrites every surface of `mesh` in place when it holds exactly these surfaces
+/// with the same vertex counts (the index buffers are then identical). The byte
+/// layout comes from Godot's stride and offset queries; in 3D, the constant normal
+/// and tangent bytes come from a reference surface Godot encoded itself. Returns
+/// false when the mesh has to be rebuilt instead.
+pub fn update_in_place(mesh: &Gd<ArrayMesh>, quads: &[&Quads], is_2d: bool) -> bool {
+    if headless() || quads.is_empty() || mesh.get_surface_count() as usize != quads.len() {
         return false;
     }
-    if mesh.surface_get_array_len(0) as usize != n || mesh.surface_get_primitive_type(0) != PrimitiveType::TRIANGLES {
-        return false;
+    let mut formats = Vec::with_capacity(quads.len());
+    for (i, q) in quads.iter().enumerate() {
+        let i = i as i32;
+        if q.positions.is_empty() || mesh.surface_get_array_len(i) as usize != q.positions.len() || mesh.surface_get_primitive_type(i) != PrimitiveType::TRIANGLES {
+            return false;
+        }
+        let f = mesh.surface_get_format(i).ord();
+        if (f & ArrayFormat::FLAG_USE_2D_VERTICES.ord() != 0) != is_2d {
+            return false;
+        }
+        formats.push(f);
     }
-    let stored = mesh.surface_get_format(0);
-    if stored.ord() & ArrayFormat::FLAG_USE_2D_VERTICES.ord() == 0 {
-        return false;
-    }
-    let (vertex, attribute) = encode_2d(q, stored.ord());
     let rid = mesh.get_rid();
     let mut rs = RenderingServer::singleton();
-    rs.mesh_surface_update_vertex_region(rid, 0, 0, &vertex);
-    rs.mesh_surface_update_attribute_region(rid, 0, 0, &attribute);
-    let (mut lo, mut hi) = (Vector2::new(f32::MAX, f32::MAX), Vector2::new(f32::MIN, f32::MIN));
-    for p in &q.positions {
-        lo = Vector2::new(lo.x.min(p[0]), lo.y.min(p[1]));
-        hi = Vector2::new(hi.x.max(p[0]), hi.y.max(p[1]));
+    let (mut lo, mut hi) = ([f32::MAX; 3], [f32::MIN; 3]);
+    for (i, q) in quads.iter().enumerate() {
+        let Some((vertex, attribute)) = encode(q, formats[i], is_2d) else { return false };
+        rs.mesh_surface_update_vertex_region(rid, i as i32, 0, &vertex);
+        rs.mesh_surface_update_attribute_region(rid, i as i32, 0, &attribute);
+        for p in &q.positions {
+            for k in 0..3 {
+                lo[k] = lo[k].min(p[k]);
+                hi[k] = hi[k].max(p[k]);
+            }
+        }
     }
-    rs.mesh_set_custom_aabb(rid, Aabb::new(Vector3::new(lo.x, lo.y, 0.0), Vector3::new(hi.x - lo.x, hi.y - lo.y, 0.0)));
+    let size = Vector3::new(hi[0] - lo[0], hi[1] - lo[1], (hi[2] - lo[2]).max(if is_2d { 0.0 } else { 0.001 }));
+    rs.mesh_set_custom_aabb(rid, Aabb::new(Vector3::new(lo[0], lo[1], lo[2]), size));
     true
+}
+
+/// Drops a custom AABB left by an in-place update, after a full rebuild.
+pub fn clear_custom_aabb(mesh: &Gd<ArrayMesh>) {
+    RenderingServer::singleton().mesh_set_custom_aabb(mesh.get_rid(), Aabb::default());
+}
+
+thread_local! {
+    /// Per 3D format: one vertex of the vertex stream as Godot encodes it for our
+    /// constant normal (0, 0, 1) and tangent (1, 0, 0, 1).
+    static VERTEX_TEMPLATES: std::cell::RefCell<std::collections::HashMap<u64, Vec<u8>>> = std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+fn vertex_template(format: u64) -> Option<Vec<u8>> {
+    if let Some(t) = VERTEX_TEMPLATES.with(|m| m.borrow().get(&format).cloned()) {
+        return Some(t);
+    }
+    let mut q = Quads::default();
+    q.push([[0.0, 0.0], [0.0, 1.0], [1.0, 1.0], [1.0, 0.0]], [[0.0; 2]; 4], [[1.0; 4]; 4], [[0.0; 2]; 4], 1.0, 0.0, [0.0; 3], -1, false);
+    let mut m = ArrayMesh::new_gd();
+    m.add_surface_from_arrays_ex(PrimitiveType::TRIANGLES, &to_arrays(&q, false)).flags(super::mesh::format(false)).done();
+    if m.surface_get_format(0).ord() != format {
+        return None;
+    }
+    let mut rs = RenderingServer::singleton();
+    let surface = rs.mesh_get_surface(m.get_rid(), 0);
+    let data: PackedByteArray = surface.get("vertex_data")?.try_to().ok()?;
+    let stride = rs.mesh_surface_get_format_vertex_stride(rendering_server::ArrayFormat::from_ord(format), 4) as usize;
+    if data.len() < stride {
+        return None;
+    }
+    let t = data.as_slice()[..stride].to_vec();
+    VERTEX_TEMPLATES.with(|m| m.borrow_mut().insert(format, t.clone()));
+    Some(t)
+}
+
+/// A surface's vertex and attribute streams laid out as Godot stores them for
+/// `format`: positions as f32 (2D pairs, 3D triples, 3D normal and tangent from
+/// the template); colour as RGBA8; UV as f32 pairs; CUSTOM0/1 as four f32 each.
+fn encode(q: &Quads, format: u64, is_2d: bool) -> Option<(PackedByteArray, PackedByteArray)> {
+    if is_2d {
+        return Some(encode_2d(q, format));
+    }
+    let template = vertex_template(format)?;
+    let rs = RenderingServer::singleton();
+    let fmt = rendering_server::ArrayFormat::from_ord(format);
+    let n = q.positions.len();
+    let vs = rs.mesh_surface_get_format_vertex_stride(fmt, n as i32) as usize;
+    if vs != template.len() {
+        return None;
+    }
+    let o_v = rs.mesh_surface_get_format_offset(fmt, n as i32, rendering_server::ArrayType::VERTEX.ord()) as usize;
+    let mut v = vec![0u8; vs * n];
+    for (i, p) in q.positions.iter().enumerate() {
+        let b = i * vs;
+        v[b..b + vs].copy_from_slice(&template);
+        for k in 0..3 {
+            v[b + o_v + 4 * k..b + o_v + 4 * k + 4].copy_from_slice(&p[k].to_le_bytes());
+        }
+    }
+    let (_, attribute) = encode_2d_attributes(q, format);
+    Some((PackedByteArray::from(v.as_slice()), attribute))
 }
 
 /// A 2D surface's vertex and attribute streams, laid out as Godot stores them for
 /// `format`: 2D positions as f32 pairs; colour as RGBA8; UV as f32 pairs; CUSTOM0/1
 /// as four f32 each.
 pub fn encode_2d(q: &Quads, format: u64) -> (PackedByteArray, PackedByteArray) {
+    encode_streams(q, format, true)
+}
+
+fn encode_2d_attributes(q: &Quads, format: u64) -> (PackedByteArray, PackedByteArray) {
+    encode_streams(q, format, false)
+}
+
+fn encode_streams(q: &Quads, format: u64, write_positions: bool) -> (PackedByteArray, PackedByteArray) {
     let rs = RenderingServer::singleton();
     let fmt = rendering_server::ArrayFormat::from_ord(format);
     let n = q.positions.len();
@@ -295,8 +382,10 @@ pub fn encode_2d(q: &Quads, format: u64) -> (PackedByteArray, PackedByteArray) {
         }
     };
     for i in 0..n {
-        let p = q.positions[i];
-        put(&mut v, i * vs + o_v, &[p[0], p[1]]);
+        if write_positions {
+            let p = q.positions[i];
+            put(&mut v, i * vs + o_v, &[p[0], p[1]]);
+        }
         let c = q.colors[i];
         let b = i * at;
         for k in 0..4 {

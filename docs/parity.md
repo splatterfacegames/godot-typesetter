@@ -129,16 +129,19 @@ on an Intel Xeon W-2135 with Vulkan, frames uncapped, an empty frame's cost subt
 | Layout and mesh per 1,000 characters | 0.9 ms |
 | `TypesetterLabel` text change per 1,000 characters | 0.71 ms |
 | Godot `Label` text change per 1,000 characters | 0.54 ms |
-| `TypesetterText3D` text change per 1,000 characters | 2.1 ms |
+| `TypesetterText3D` text change per 1,000 characters | 0.62 to 0.67 ms |
 | 100 short labels changing every frame, Typesetter | 6.9 ms per frame |
 | 100 short labels changing every frame, `Label` | 3.4 ms per frame |
+| 100 short 3D texts changing every frame, Typesetter | 6.3 to 6.9 ms per frame |
+| 100 short 3D texts changing every frame, `Label3D` | 17.1 to 17.6 ms per frame |
 | 100 static labels, either | no measurable cost |
 
 Long text now costs about what `Label` does. Short labels that change every frame
 still cost about twice as much: each update has a fixed cost of roughly 45 µs, about
 half of it GDScript in the node and half building and uploading the mesh. When the
-vertex count is unchanged (a counter, say) the mesh is rewritten in place rather than
-rebuilt. `TypesetterText3D` doesn't use that path yet.
+vertex counts are unchanged (a counter, say), 2D and 3D meshes are rewritten in place
+rather than rebuilt; `tests/render/verify_mesh_update.gd` checks the bytes match a
+rebuild. In 3D, Typesetter is faster than Godot's `Label3D`.
 
 `tests/bench/profile_update.gd` and `tests/bench/profile_labels.gd` break an update
 into its phases.

@@ -37,8 +37,8 @@ Measured against Unity TextMesh Pro:
 - rendered pixels differ by a median of 0.075 of 255 over 227 cases.
 
 Glow and bevel are fitted approximations. A text change costs about what Godot's
-`Label` does for long text, and about twice as much for short labels that change every
-frame. [docs/parity.md](docs/parity.md) lists every known gap.
+`Label` does for long text, about twice as much for short labels that change every
+frame, and in 3D less than Godot's `Label3D`. [docs/parity.md](docs/parity.md) lists every known gap.
 
 ## Building
 
