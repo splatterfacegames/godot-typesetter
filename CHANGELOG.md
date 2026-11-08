@@ -7,6 +7,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-08
+
 ### Performance
 
 - Changing font size, spacing, margins, colour or the visible-character limits at
@@ -48,5 +50,6 @@ set, under renamed identifiers (see `docs/api-map.md`).
 - Text changes cost about what Godot's `Label` does (within 20%) and a quarter of
   what `Label3D` does; meshes are rewritten in place when only the text changes.
 
-[Unreleased]: https://github.com/splatterfacegames/godot-typesetter/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/splatterfacegames/godot-typesetter/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/splatterfacegames/godot-typesetter/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/splatterfacegames/godot-typesetter/releases/tag/v0.1.0

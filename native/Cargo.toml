@@ -1,6 +1,6 @@
 [package]
 name = "typesetter_native"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Native core for the Typesetter SDF text addon (font loading, distance-field generation, atlas packing, rich text, layout, mesh building)"
 license = "MIT"
