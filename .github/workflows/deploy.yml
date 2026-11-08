@@ -14,8 +14,8 @@ concurrency:
 
 env:
   GODOT_VERSION: 4.7.2
-  # The Emscripten Godot 4.7's web templates are built with (.github/workflows/web_builds.yml).
-  EM_VERSION: 4.0.11
+  # The Emscripten Godot 4.7.2's web templates report at startup ("Build configuration").
+  EM_VERSION: 4.0.20
 
 jobs:
   deploy:

@@ -50,7 +50,7 @@ CI also uploads the library for Windows, Linux and macOS as build artifacts.
 
 For the web, `python native/build.py --web` builds a single-threaded library. It needs
 nightly Rust with `rust-src` and the `wasm32-unknown-emscripten` target, Emscripten
-4.0.11 (the version Godot 4.7's web templates use), and `GODOT4_BIN` pointing at a
+4.0.20 (the version Godot 4.7.2's web templates are built with), and `GODOT4_BIN` pointing at a
 Godot 4.7 binary. Export with **Extensions Support** on and **Thread Support** off. The
 demo on the [site](https://godot-typesetter.splatterfacegames.com/) is built this way by
 `.github/workflows/deploy.yml`.

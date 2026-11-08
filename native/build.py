@@ -3,7 +3,7 @@
 
     python native/build.py            # host target
     python native/build.py --target x86_64-unknown-linux-gnu
-    python native/build.py --web      # needs nightly Rust, emsdk 4.0.11 and GODOT4_BIN
+    python native/build.py --web      # needs nightly Rust, emsdk 4.0.20 and GODOT4_BIN
 
 The addon requires this library: atlas generation, rich-text parsing, layout
 and mesh building all live in the native core.

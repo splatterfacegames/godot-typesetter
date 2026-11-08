@@ -100,9 +100,10 @@ static func get_default_font_asset() -> TypesetterFontAsset:
 	if a != null:
 		return a
 	if not _cache.has("builtin_font"):
-		var path := "res://addons/typesetter/fonts/Inter-Regular.ttf"
-		var f := FontFile.new()
-		if f.load_dynamic_font(path) == OK:
+		# load() goes through the import, which exported games keep; the raw .ttf is
+		# not exported.
+		var f := load("res://addons/typesetter/fonts/Inter-Regular.ttf") as FontFile
+		if f != null and not f.data.is_empty():
 			var asset := TypesetterFontAsset.create_font_asset(f)
 			asset.resource_name = "Inter Regular SDF"
 			_cache["builtin_font"] = asset

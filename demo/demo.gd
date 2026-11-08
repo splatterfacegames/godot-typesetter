@@ -19,8 +19,8 @@ var _reel := "--reel" in OS.get_cmdline_user_args()
 
 
 func _ready() -> void:
-	var ff := FontFile.new()
-	ff.load_dynamic_font("res://demo/fonts/Inter-Regular.ttf")
+	# load() uses the imported font, which exports keep (the raw .ttf is not exported).
+	var ff := load("res://demo/fonts/Inter-Regular.ttf") as FontFile
 	asset = TypesetterFontAsset.create_font_asset(ff, 90, 9)
 	_build()
 
