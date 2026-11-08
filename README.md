@@ -105,6 +105,16 @@ per 1,000 characters and per-frame cost against `Label`. On an Intel Xeon W-2135
 takes 0.3 to 0.5 ms per 1,000 characters, a full text change 0.7 ms (Label: 0.54 ms) and
 an ASCII SDFAA atlas 8 ms.
 
+## Releases
+
+Releases are on [GitHub](https://github.com/splatterfacegames/godot-typesetter/releases),
+each with the addon ready to unzip (`addons/typesetter`, native libraries included) and
+notes from [CHANGELOG.md](CHANGELOG.md). To make one: move the `[Unreleased]` notes
+under a new version heading, set the same version in `addons/typesetter/plugin.cfg`
+and `native/Cargo.toml`, and push a `vX.Y.Z` tag. `.github/workflows/release.yml`
+checks the versions agree (`python tools/release_notes.py X.Y.Z`), builds every
+library and publishes the release.
+
 ## Inspiration and provenance
 
 Typesetter was inspired by **TextMesh Pro**, but it is a **clean-room

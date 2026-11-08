@@ -1,0 +1,110 @@
+name: Release
+
+# Push a tag such as v0.1.0 after updating CHANGELOG.md, plugin.cfg and Cargo.toml.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  GODOT_VERSION: 4.7.2
+  EM_VERSION: 4.0.20
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Versions agree and the changelog has notes
+        run: python3 tools/release_notes.py "${GITHUB_REF_NAME}"
+
+  native:
+    needs: check
+    name: Native library (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - os: macos-latest
+            target: aarch64-apple-darwin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Build
+        run: python native/build.py --target ${{ matrix.target }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lib-${{ matrix.target }}
+          path: addons/typesetter/bin/
+          if-no-files-found: error
+
+  web:
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: wasm32-unknown-emscripten
+          components: rust-src
+      - uses: emscripten-core/setup-emsdk@v16
+        with:
+          version: ${{ env.EM_VERSION }}
+      - name: Install Godot (gdext reads the API from it)
+        run: |
+          curl -L --fail --output godot.zip \
+            "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          unzip -q godot.zip
+          chmod +x "Godot_v${GODOT_VERSION}-stable_linux.x86_64"
+          sudo mv "Godot_v${GODOT_VERSION}-stable_linux.x86_64" /usr/local/bin/godot
+      - name: Build
+        env:
+          GODOT4_BIN: /usr/local/bin/godot
+        run: python native/build.py --web
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lib-web
+          path: addons/typesetter/bin/
+          if-no-files-found: error
+
+  publish:
+    needs: [native, web]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: lib-*
+          path: addons/typesetter/bin/
+          merge-multiple: true
+      - name: Package the addon
+        run: |
+          ls -la addons/typesetter/bin
+          mkdir -p dist
+          cp LICENSE README.md CHANGELOG.md addons/typesetter/
+          zip -qr "dist/typesetter-${GITHUB_REF_NAME}.zip" addons/typesetter
+          python3 tools/release_notes.py "${GITHUB_REF_NAME}" > notes.md
+          {
+            echo
+            echo "**Install:** unzip into your project so that \`addons/typesetter\` sits at its root, then enable Typesetter under Project Settings, Plugins. Libraries are included for Windows x86_64, Linux x86_64, macOS arm64 and the web (export with Extensions Support on and Thread Support off)."
+            echo
+            echo "Known gaps and measurements: [docs/parity.md](https://github.com/${GITHUB_REPOSITORY}/blob/${GITHUB_REF_NAME}/docs/parity.md)."
+          } >> notes.md
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "${GITHUB_REF_NAME}"
+          --title "Typesetter ${GITHUB_REF_NAME}"
+          --notes-file notes.md
+          "dist/typesetter-${GITHUB_REF_NAME}.zip"
