@@ -3,10 +3,6 @@ name: Deploy to Cloudflare Pages
 on:
   push:
     branches: [main]
-    paths:
-      - "site/**"
-      - "wrangler.jsonc"
-      - ".github/workflows/deploy.yml"
   workflow_dispatch:
 
 permissions:
@@ -16,13 +12,73 @@ concurrency:
   group: production
   cancel-in-progress: true
 
+env:
+  GODOT_VERSION: 4.7.2
+  # The Emscripten Godot 4.7's web templates are built with (.github/workflows/web_builds.yml).
+  EM_VERSION: 4.0.11
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-      - name: Deploy the product site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: wasm32-unknown-emscripten
+          components: rust-src
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native
+      - uses: emscripten-core/setup-emsdk@v16
+        with:
+          version: ${{ env.EM_VERSION }}
+          actions-cache-folder: emsdk-cache
+      - name: Install Godot and its export templates
+        run: |
+          curl -L --fail --output godot.zip \
+            "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          curl -L --fail --output templates.tpz \
+            "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_export_templates.tpz"
+          unzip -q godot.zip
+          chmod +x "Godot_v${GODOT_VERSION}-stable_linux.x86_64"
+          sudo mv "Godot_v${GODOT_VERSION}-stable_linux.x86_64" /usr/local/bin/godot
+          unzip -q templates.tpz -d /tmp/godot-templates
+          mkdir -p "$HOME/.local/share/godot/export_templates"
+          mv /tmp/godot-templates/templates "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+      - name: Build the native library (the editor needs it to export)
+        run: python native/build.py
+      - name: Build the web library
+        env:
+          GODOT4_BIN: /usr/local/bin/godot
+        run: |
+          emcc --version | head -1
+          python native/build.py --web
+      - name: Export the demo and assemble the site
+        run: |
+          godot --headless --import
+          mkdir -p dist/demo
+          godot --headless --export-release Web dist/demo/index.html
+          ls -la dist/demo
+          cp -R site/. dist/
+          node scripts/prepare_r2_assets.mjs dist .r2-upload
+      - name: Upload oversized demo files to R2
+        if: ${{ hashFiles('.r2-upload/**') != '' }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          AWS_REQUEST_CHECKSUM_CALCULATION: WHEN_REQUIRED
+          AWS_RESPONSE_CHECKSUM_VALIDATION: WHEN_REQUIRED
+        run: >-
+          aws s3 cp .r2-upload s3://godot-typesetter-web
+          --recursive
+          --endpoint-url "${{ secrets.CLOUDFLARE_R2_ENDPOINT }}"
+      - name: Deploy the site and the R2 proxy
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}

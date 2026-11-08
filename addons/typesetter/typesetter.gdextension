@@ -12,3 +12,5 @@ linux.debug.x86_64 = "res://addons/typesetter/bin/libtypesetter_native.linux.x86
 linux.release.x86_64 = "res://addons/typesetter/bin/libtypesetter_native.linux.x86_64.so"
 macos.debug.arm64 = "res://addons/typesetter/bin/libtypesetter_native.macos.arm64.dylib"
 macos.release.arm64 = "res://addons/typesetter/bin/libtypesetter_native.macos.arm64.dylib"
+web.debug.wasm32 = "res://addons/typesetter/bin/typesetter_native.wasm"
+web.release.wasm32 = "res://addons/typesetter/bin/typesetter_native.wasm"

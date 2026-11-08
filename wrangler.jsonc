@@ -1,6 +1,12 @@
 {
   "$schema": "https://raw.githubusercontent.com/cloudflare/workers-sdk/main/packages/wrangler/config-schema.json",
   "name": "godot-typesetter",
-  "pages_build_output_dir": "./site",
-  "compatibility_date": "2026-08-27"
+  "pages_build_output_dir": "./dist",
+  "compatibility_date": "2026-08-27",
+  "r2_buckets": [
+    {
+      "binding": "DEMO_BLOBS",
+      "bucket_name": "godot-typesetter-web"
+    }
+  ]
 }

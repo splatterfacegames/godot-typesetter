@@ -1,0 +1,10 @@
+# Web build flags (single-threaded Emscripten side module), from the godot-rust book.
+# Used by: cargo +nightly build -Zbuild-std --target wasm32-unknown-emscripten --no-default-features --features web
+[target.wasm32-unknown-emscripten]
+rustflags = [
+    "-C", "link-args=-sSIDE_MODULE=2",
+    "-C", "llvm-args=-enable-emscripten-cxx-exceptions=0",
+    "-Z", "default-visibility=hidden",
+    "-Z", "link-native-libraries=no",
+    "-Z", "emscripten-wasm-eh=false",
+]

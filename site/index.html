@@ -35,6 +35,16 @@
     <p class="links"><a href="https://github.com/jethac/godot-typesetter">Source on GitHub</a> <a href="https://github.com/jethac/godot-typesetter/blob/main/docs/api-map.md">Full API map</a> <a href="https://github.com/jethac/godot-typesetter/blob/main/docs/research.md">How we chose SDF</a></p>
   </section>
 
+  <section class="demo">
+    <h2>The real thing, running in your browser</h2>
+    <p>This is Typesetter's demo scene exported from Godot 4.7 for the web. Every piece of text in it is a Typesetter node, drawn with the same shaders as on desktop.</p>
+    <div class="demo-frame">
+      <video src="typesetter-reel.mp4" autoplay muted loop playsinline aria-label="Fifteen seconds of the demo: effects changing, animated text, 3D text and a zoom into sharp edges"></video>
+      <button id="run-demo" type="button">Run the Godot demo</button>
+    </div>
+    <p class="note">The demo downloads about 40 MB, and the controls need a mouse or touch.</p>
+  </section>
+
   <section>
     <h2>The same API under new names</h2>
     <div class="scroll">
@@ -74,7 +84,7 @@
       <li>Enable Typesetter under Project Settings, Plugins.</li>
       <li>Open Project, Tools, Typesetter: Font Asset Creator, generate an atlas, and add a <code>TypesetterLabel</code> to a scene.</li>
     </ol>
-    <p>Windows, Linux and macOS are supported. Web builds aren't yet, because the Rust core doesn't target them.</p>
+    <p>Windows, Linux, macOS and the web are supported. Web builds use the single-threaded library (<code>python native/build.py --web</code>).</p>
   </section>
 
   <section>
@@ -83,5 +93,16 @@
   </section>
 </main>
 <script src="app.js" defer></script>
+<script>
+  document.getElementById("run-demo").addEventListener("click", () => {
+    const frame = document.querySelector(".demo-frame");
+    const iframe = document.createElement("iframe");
+    iframe.src = "demo/index.html";
+    iframe.title = "Typesetter demo";
+    iframe.allow = "fullscreen";
+    frame.replaceChildren(iframe);
+    iframe.focus();
+  });
+</script>
 </body>
 </html>
