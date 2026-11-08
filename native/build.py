@@ -9,6 +9,7 @@ The addon requires this library: atlas generation, rich-text parsing, layout
 and mesh building all live in the native core.
 """
 import argparse
+import os
 import platform
 import shutil
 import subprocess
@@ -47,10 +48,14 @@ def main() -> int:
         return 1
     if a.target == WEB:
         # Emscripten side module: nightly for -Zbuild-std; gdext reads the API from GODOT4_BIN.
-        cmd = ["cargo", "+nightly", "build", "-Zbuild-std", "--release", "--target", WEB, "--no-default-features", "--features", "web"]
+        # Panics abort in a Godot wasm build anyway; with panic=abort nothing needs
+        # Wasm exception handling, which Godot's web templates do not enable.
+        cmd = ["cargo", "+nightly", "build", "-Zbuild-std=std,panic_abort", "--release", "--target", WEB, "--no-default-features", "--features", "web"]
+        env = dict(os.environ, CARGO_PROFILE_RELEASE_PANIC="abort")
     else:
         cmd = ["cargo", "build", "--release", "--target", a.target]
-    r = subprocess.run(cmd, cwd=HERE)
+        env = None
+    r = subprocess.run(cmd, cwd=HERE, env=env)
     if r.returncode != 0:
         return r.returncode
     art, name = OUT[a.target]

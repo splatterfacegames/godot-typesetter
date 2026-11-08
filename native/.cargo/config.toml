@@ -1,4 +1,6 @@
 # Web build flags (single-threaded Emscripten side module), from the godot-rust book.
+# The book also sets -Z emscripten-wasm-eh=false; current nightly has no such option,
+# so build.py builds the web library with panic=abort instead (no unwinding at all).
 # Used by: cargo +nightly build -Zbuild-std --target wasm32-unknown-emscripten --no-default-features --features web
 [target.wasm32-unknown-emscripten]
 rustflags = [
@@ -6,5 +8,4 @@ rustflags = [
     "-C", "llvm-args=-enable-emscripten-cxx-exceptions=0",
     "-Z", "default-visibility=hidden",
     "-Z", "link-native-libraries=no",
-    "-Z", "emscripten-wasm-eh=false",
 ]
