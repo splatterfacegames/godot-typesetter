@@ -69,7 +69,7 @@ func test_layout_matches_label_positions() -> void:
 	assert_eq(a.line_count, b.line_count)
 	for i in a.character_count:
 		assert_almost_eq(a.character_info[i].origin, b.character_info[i].origin, 0.001)
-		assert_almost_eq(a.character_info[i].baseline, b.character_info[i].baseline, 0.001)
+		assert_almost_eq(a.character_info[i].base_line, b.character_info[i].base_line, 0.001)
 
 
 func test_draw_and_clear_own_their_canvas_items() -> void:

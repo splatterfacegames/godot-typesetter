@@ -82,6 +82,10 @@ func _ts_build_meshes_impl() -> Array[Dictionary]:
 	return out
 
 
+func _ts_update_meshes() -> Array[ArrayMesh]:
+	return [_ts_mesh]
+
+
 func _ts_present() -> void:
 	for s in _ts_surfaces:
 		var i: int = s.surface

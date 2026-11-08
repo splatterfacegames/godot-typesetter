@@ -120,6 +120,10 @@ func _ts_build_meshes_impl() -> Array[Dictionary]:
 	return out
 
 
+func _ts_update_meshes() -> Array[ArrayMesh]:
+	return _ts_meshes
+
+
 func _ts_present() -> void:
 	var parent := get_canvas_item()
 	while _ts_items.size() < _ts_surfaces.size():
@@ -146,7 +150,9 @@ func _ts_present() -> void:
 		RenderingServer.canvas_item_set_material(it, mat.get_rid() if mat else RID())
 		RenderingServer.canvas_item_set_modulate(it, _ts_tint)
 		RenderingServer.canvas_item_set_clip(it, clip)
-		RenderingServer.canvas_item_set_custom_rect(it, clip, clip_rect)
+		# Meshes can be rewritten in place, so the item's rect must not follow the mesh
+		# it was added with: clip to the label when masking, otherwise never cull.
+		RenderingServer.canvas_item_set_custom_rect(it, true, clip_rect if clip else Rect2(-1e6, -1e6, 2e6, 2e6))
 	if get_parent() is Container:
 		update_minimum_size()
 

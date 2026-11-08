@@ -1399,6 +1399,8 @@ func _ts_layout() -> void:
 
 
 func _ts_update(force: bool) -> void:
+	if _ts_try_fast_text_update():
+		return
 	if _ts_dirty_layout or force:
 		_ts_layout()
 	if _ts_dirty_vertices or _ts_dirty_material or force:
@@ -1413,6 +1415,33 @@ func _ts_update(force: bool) -> void:
 		if not pre_render_text.get_connections().is_empty():
 			pre_render_text.emit(_ts_core.get_text_info())
 		_ts_present()
+
+
+## A change to the text alone, drawn with the same fonts and materials: the core
+## lays it out and rewrites the meshes in place, so nothing else is rebuilt.
+func _ts_try_fast_text_update() -> bool:
+	if not _ts_dirty_layout or _ts_dirty_material or _ts_settings_stale or _ts_surfaces.is_empty():
+		return false
+	if render_mode == TextRenderFlags.DONT_RENDER or auto_size_text_container or _ts_linked_parent != null:
+		return false
+	if overflow_mode == TextOverflowModes.LINKED:
+		return false
+	if _ts_synced_lookup_revision != TypesetterTextUtilities.revision or _ts_synced_bold_tag != _ts_style_has_bold():
+		return false
+	if not _ts_core.refresh_text(_ts_source_text(), _ts_container_size(), _ts_update_meshes()):
+		# Laid out already: finish on the normal path without a second layout.
+		_ts_dirty_layout = false
+		_ts_dirty_vertices = true
+		_ts_after_layout()
+		return false
+	_ts_dirty_layout = false
+	_ts_dirty_vertices = false
+	_ts_have_properties_changed = false
+	if _ts_core.has_missing_characters() or (rich_text and text.contains("anim")):
+		_ts_after_layout()
+	if not pre_render_text.get_connections().is_empty():
+		pre_render_text.emit(_ts_core.get_text_info())
+	return true
 
 
 func _ts_source_text() -> String:
@@ -1710,6 +1739,10 @@ func _ts_build_meshes_impl() -> Array[Dictionary]:
 	return out
 
 
+func _ts_update_meshes() -> Array[ArrayMesh]:
+	return _ts_meshes
+
+
 func _ts_present() -> void:
 	var parent := get_canvas_item()
 	while _ts_items.size() < _ts_surfaces.size():
@@ -1736,7 +1769,9 @@ func _ts_present() -> void:
 		RenderingServer.canvas_item_set_material(it, mat.get_rid() if mat else RID())
 		RenderingServer.canvas_item_set_modulate(it, _ts_tint)
 		RenderingServer.canvas_item_set_clip(it, clip)
-		RenderingServer.canvas_item_set_custom_rect(it, clip, clip_rect)
+		# Meshes can be rewritten in place, so the item's rect must not follow the mesh
+		# it was added with: clip to the label when masking, otherwise never cull.
+		RenderingServer.canvas_item_set_custom_rect(it, true, clip_rect if clip else Rect2(-1e6, -1e6, 2e6, 2e6))
 	if get_parent() is Container:
 		update_minimum_size()
 

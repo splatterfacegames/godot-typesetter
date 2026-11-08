@@ -481,6 +481,8 @@ pub struct TypesetterTextCore {
     pub fonts: Option<GdFonts>,
     fonts_revision: i64,
     fonts_font: Option<InstanceId>,
+    /// Surfaces of the last build_meshes / build_mesh, for refresh_text.
+    last_surfaces: Vec<super::mesh::SurfaceKey>,
     pub info_cache: Option<Gd<TypesetterTextInfo>>,
     pub dirty: bool,
 }
@@ -550,6 +552,7 @@ impl IRefCounted for TypesetterTextCore {
             fonts: None,
             fonts_revision: -1,
             fonts_font: None,
+            last_surfaces: Vec::new(),
             info_cache: None,
             dirty: true,
         }
@@ -826,6 +829,7 @@ impl TypesetterTextCore {
     pub fn build_meshes(&mut self, into: Array<Gd<ArrayMesh>>) -> Array<VarDictionary> {
         let mut out: Array<VarDictionary> = Array::new();
         let Some(surfaces) = self.surfaces() else { return out };
+        self.last_surfaces = surfaces.iter().map(|(k, _)| *k).collect();
         for (si, (key, q)) in surfaces.into_iter().enumerate() {
             let mut mesh = into.get(si).unwrap_or_else(ArrayMesh::new_gd);
             // Same vertex count as last time (a changing number, say): rewrite the
@@ -844,6 +848,38 @@ impl TypesetterTextCore {
         out
     }
 
+    /// Text-only change: lays `text` out at `rect_size` and, when it draws with the
+    /// same surfaces (fonts, atlases, materials) and vertex counts as the last build,
+    /// rewrites `meshes` in place (2D: one mesh per surface; 3D: one mesh holding all).
+    /// Returns true when nothing else needs to change; false means the layout is done
+    /// but the meshes need a normal build.
+    #[func]
+    pub fn refresh_text(&mut self, text: GString, rect_size: Vector2, meshes: Array<Gd<ArrayMesh>>) -> bool {
+        self.text = text;
+        self.rect_size = rect_size;
+        self.update();
+        let Some(surfaces) = self.surfaces() else { return false };
+        if surfaces.len() != self.last_surfaces.len() || surfaces.iter().zip(&self.last_surfaces).any(|((k, _), last)| k != last) {
+            return false;
+        }
+        if self.world_space {
+            let Some(mesh) = meshes.get(0) else { return false };
+            let quads: Vec<&super::mesh::Quads> = surfaces.iter().map(|(_, q)| q).collect();
+            return super::mesh::update_in_place(&mesh, &quads, false);
+        }
+        if meshes.len() != surfaces.len() {
+            return false;
+        }
+        // All or nothing: a partial update is rebuilt by the caller anyway.
+        surfaces.iter().enumerate().all(|(i, (_, q))| meshes.get(i).is_some_and(|m| super::mesh::update_in_place(&m, &[q], true)))
+    }
+
+    /// True when the last layout had characters no font asset could supply.
+    #[func]
+    pub fn has_missing_characters(&self) -> bool {
+        !self.missing.is_empty()
+    }
+
     /// Builds every surface into one ArrayMesh (3D text: one mesh, one material
     /// per surface). Returns the same per-surface dictionaries as `build_meshes`
     /// with "surface" set to the surface index instead of "mesh".
@@ -855,6 +891,7 @@ impl TypesetterTextCore {
             return out;
         };
         let is_2d = !self.world_space;
+        self.last_surfaces = surfaces.iter().map(|(k, _)| *k).collect();
         // Same surfaces with the same vertex counts as last time: rewrite in place.
         let quads: Vec<&super::mesh::Quads> = surfaces.iter().map(|(_, q)| q).collect();
         if !super::mesh::update_in_place(&mesh, &quads, is_2d) {

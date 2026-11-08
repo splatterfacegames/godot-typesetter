@@ -116,32 +116,29 @@ These rules came from Unity's output, and each is covered by a case.
 
 ## Performance
 
-`godot --path . -s res://tests/bench/benchmarks.gd` writes `bench/results`. Measured
-on an Intel Xeon W-2135 with Vulkan, frames uncapped, an empty frame's cost subtracted.
+`godot --path . -s res://tests/bench/benchmarks.gd` writes `bench/results`. Frames run
+uncapped with an empty frame's cost subtracted. The machine (Intel Xeon W-2135, Vulkan)
+was shared with other work, so absolute times vary between runs; the ratios below
+compare Typesetter and Godot within the same run, over three runs.
 
-| Measure | Result |
+| Measure | Typesetter | Godot | Ratio |
+| --- | --- | --- | --- |
+| 100 short labels changing every frame | 4.7 to 5.9 ms | `Label`: 4.0 to 5.4 ms | 1.03 to 1.20× |
+| 100 short 3D texts changing every frame | 4.7 to 5.4 ms | `Label3D`: 21 to 23 ms | 0.21 to 0.25× |
+| Text change per 1,000 characters, 2D | 0.49 to 0.99 ms | `Label`: 0.48 to 0.82 ms | 1.0 to 1.4× |
+| Text change per 1,000 characters, 3D | 0.55 to 0.85 ms | | |
+| Layout alone per 1,000 characters | 0.25 to 0.48 ms | | |
+
+| Atlas, ASCII at 90 pt | Time |
 | --- | --- |
-| Atlas, ASCII at 90 pt: SMOOTH, RASTER | 4 ms |
-| Atlas: SDF, SDFAA | 7 to 8 ms |
-| Atlas: MTSDF | 95 ms |
-| Atlas: SDF8, SDF16, SDF32 | 276 ms, 1.2 s, 5.5 s |
-| Layout per 1,000 characters | 0.28 to 0.48 ms |
-| Layout and mesh per 1,000 characters | 0.9 ms |
-| `TypesetterLabel` text change per 1,000 characters | 0.71 ms |
-| Godot `Label` text change per 1,000 characters | 0.54 ms |
-| `TypesetterText3D` text change per 1,000 characters | 0.62 to 0.67 ms |
-| 100 short labels changing every frame, Typesetter | 6.9 ms per frame |
-| 100 short labels changing every frame, `Label` | 3.4 ms per frame |
-| 100 short 3D texts changing every frame, Typesetter | 6.3 to 6.9 ms per frame |
-| 100 short 3D texts changing every frame, `Label3D` | 17.1 to 17.6 ms per frame |
-| 100 static labels, either | no measurable cost |
+| SMOOTH, RASTER | 4 ms |
+| SDF, SDFAA | 7 to 8 ms |
+| MTSDF | 95 ms |
+| SDF8, SDF16, SDF32 | 276 ms, 1.2 s, 5.5 s |
 
-Long text now costs about what `Label` does. Short labels that change every frame
-still cost about twice as much: each update has a fixed cost of roughly 45 µs, about
-half of it GDScript in the node and half building and uploading the mesh. When the
-vertex counts are unchanged (a counter, say), 2D and 3D meshes are rewritten in place
-rather than rebuilt; `tests/render/verify_mesh_update.gd` checks the bytes match a
-rebuild. In 3D, Typesetter is faster than Godot's `Label3D`.
-
-`tests/bench/profile_update.gd` and `tests/bench/profile_labels.gd` break an update
-into its phases.
+A change to the text alone, drawn with the same fonts and materials, takes a native
+path: the core lays the text out and, when the vertex counts match the last build,
+rewrites the meshes in place, so materials and canvas items are left alone. Other
+changes take the full path. `tests/render/verify_mesh_update.gd` checks that the
+in-place bytes match a rebuild, in 2D and 3D. `tests/bench/profile_update.gd` and
+`tests/bench/profile_labels.gd` break an update into its phases.
