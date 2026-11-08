@@ -162,3 +162,25 @@ func test_dont_render() -> void:
 	l.force_mesh_update(true)
 	assert_eq(l._ts_surfaces.size(), 0)
 	assert_eq(l.text_info.character_count, 11)
+
+
+func test_font_material_edits_reach_the_drawn_material() -> void:
+	var l := _label("Edit me")
+	var m := l.font_material as ShaderMaterial
+	l.force_mesh_update(true)
+	# Edited in place: 2D draws with the instance itself.
+	m.set_shader_parameter(&"outline_width", 0.4)
+	var used := l._ts_surfaces[0].material_used as ShaderMaterial
+	assert_almost_eq(float(used.get_shader_parameter(&"outline_width")), 0.4, 0.0001)
+	# Edited and reassigned (TMP's fontMaterial = m): the same in 3D.
+	var t := TypesetterText3D.new()
+	t.font = font_asset
+	t.text = "Edit me"
+	add_child_autofree(t)
+	t.force_mesh_update(true)
+	var m3 := t.font_material as ShaderMaterial
+	m3.set_shader_parameter(&"outline_width", 0.3)
+	t.font_material = m3
+	t.force_mesh_update(true)
+	var used3 := t._ts_surfaces[0].material_used as ShaderMaterial
+	assert_almost_eq(float(used3.get_shader_parameter(&"outline_width")), 0.3, 0.0001)

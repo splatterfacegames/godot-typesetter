@@ -38,7 +38,9 @@ func _init() -> void:
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_PREDELETE:
-		clear()
+		# Methods cannot be called while the object is being freed.
+		for it in _items:
+			RenderingServer.free_rid(it)
 
 
 func set_style(style: TypesetterTextStyle) -> void:

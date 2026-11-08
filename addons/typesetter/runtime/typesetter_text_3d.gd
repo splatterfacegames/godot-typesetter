@@ -722,12 +722,19 @@ func _ts_get_font_material() -> Material:
 		if base != null:
 			_ts_font_material_instance = base.duplicate()
 			_ts_font_material_instance.resource_name = base.resource_name + " (Instance)"
+			# With the atlas bound, 2D text draws with this very material, so editing
+			# its parameters shows at once (TMP's fontMaterial.SetFloat).
+			if _ts_font_material_instance is ShaderMaterial and _ts_font() != null:
+				TypesetterMaterialManager.apply_font_asset(_ts_font_material_instance, _ts_font(), 0)
 		_ts_set_material_dirty()
 	return _ts_font_material_instance
 
 
 func _ts_set_font_material(v: Material) -> void:
 	_ts_font_material_instance = v
+	# Assigning a material (edited or not) refreshes the copies drawn for other
+	# atlases, fallbacks and 3D.
+	TypesetterMaterialManager.mark_changed(v)
 	_ts_set_material_dirty()
 	_ts_set_layout_dirty()
 
