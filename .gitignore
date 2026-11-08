@@ -15,3 +15,4 @@
 /bench/results/
 __pycache__/
 /bench/godot/
+/native/target*/
